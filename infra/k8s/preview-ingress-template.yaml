@@ -1,0 +1,24 @@
+# Reference template — actual ingresses are created programmatically
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: preview-{FEATURE_SLUG}-{BRANCH}
+  namespace: assembly-lime
+  labels:
+    app.kubernetes.io/part-of: assembly-lime
+    app.kubernetes.io/component: preview
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+spec:
+  ingressClassName: "{INGRESS_CLASS}"
+  rules:
+    - host: "{FEATURE_SLUG}-{BRANCH}.{REPO}.{PREVIEW_DOMAIN}"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: preview-{FEATURE_SLUG}-{BRANCH}
+                port:
+                  number: 80

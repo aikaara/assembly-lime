@@ -1,0 +1,49 @@
+# Reference template — actual jobs are created programmatically by the worker
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: agent-run-{RUN_ID}
+  namespace: assembly-lime
+  labels:
+    app.kubernetes.io/part-of: assembly-lime
+    app.kubernetes.io/component: agent
+    assembly-lime/run-id: "{RUN_ID}"
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 600
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: assembly-lime
+        app.kubernetes.io/component: agent
+    spec:
+      serviceAccountName: agent-worker-sa
+      restartPolicy: Never
+      containers:
+        - name: agent
+          image: "{AGENT_IMAGE}"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          env:
+            - name: AGENT_JOB_PAYLOAD
+              value: "{BASE64_PAYLOAD}"
+            - name: REDIS_URL
+              value: "{REDIS_URL}"
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: ANTHROPIC_API_KEY
+                  optional: true
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: agent-secrets
+                  key: OPENAI_API_KEY
+                  optional: true

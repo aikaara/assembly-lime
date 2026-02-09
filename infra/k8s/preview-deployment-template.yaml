@@ -1,0 +1,48 @@
+# Reference template — actual deployments are created programmatically
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: preview-{FEATURE_SLUG}-{BRANCH}
+  namespace: assembly-lime
+  labels:
+    app.kubernetes.io/part-of: assembly-lime
+    app.kubernetes.io/component: preview
+    assembly-lime/feature: "{FEATURE_SLUG}"
+    assembly-lime/branch: "{BRANCH}"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      assembly-lime/preview: "{FEATURE_SLUG}-{BRANCH}"
+  template:
+    metadata:
+      labels:
+        assembly-lime/preview: "{FEATURE_SLUG}-{BRANCH}"
+    spec:
+      containers:
+        - name: app
+          image: "{APP_IMAGE}"
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: preview-{FEATURE_SLUG}-{BRANCH}
+  namespace: assembly-lime
+  labels:
+    app.kubernetes.io/part-of: assembly-lime
+    app.kubernetes.io/component: preview
+spec:
+  selector:
+    assembly-lime/preview: "{FEATURE_SLUG}-{BRANCH}"
+  ports:
+    - port: 80
+      targetPort: 3000

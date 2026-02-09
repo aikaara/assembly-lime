@@ -11,3 +11,5 @@ export * from "./pipelines";
 export * from "./secrets";
 export * from "./budgets";
 export * from "./audit";
+export * from "./images";
+export * from "./preview-deployments";

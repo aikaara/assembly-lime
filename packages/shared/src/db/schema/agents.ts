@@ -27,6 +27,7 @@ export const agentRuns = pgTable(
     mode: text("mode").notNull(),
     status: text("status").notNull(),
     inputPrompt: text("input_prompt").notNull(),
+    resolvedPrompt: text("resolved_prompt"),
     outputSummary: text("output_summary"),
     artifactsJson: jsonb("artifacts_json").notNull().default({}),
     costCents: bigint("cost_cents", { mode: "number" }).notNull().default(0),
