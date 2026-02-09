@@ -15,6 +15,13 @@
       "when": 1770628392919,
       "tag": "0001_deep_aqueduct",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1770636279034,
+      "tag": "0002_mushy_thunderbird",
+      "breakpoints": true
     }
   ]
 }

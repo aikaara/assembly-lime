@@ -1,16 +1,18 @@
 import { Elysia, t } from "elysia";
-import { eq, and, asc } from "drizzle-orm";
+import { eq, asc } from "drizzle-orm";
 import type { Db } from "@assembly-lime/shared/db";
-import { agentRuns, agentEvents } from "@assembly-lime/shared/db/schema";
+import { agentEvents } from "@assembly-lime/shared/db/schema";
+import { requireAuth } from "../middleware/auth";
 import { createAgentRun, getAgentRun } from "../services/agent-run.service";
 
 export function agentRunRoutes(db: Db) {
   return new Elysia({ prefix: "/agent-runs" })
+    .use(requireAuth)
     .post(
       "/",
-      async ({ body }) => {
+      async ({ auth, body }) => {
         const run = await createAgentRun(db, {
-          tenantId: body.tenantId,
+          tenantId: auth!.tenantId,
           projectId: body.projectId,
           ticketId: body.ticketId,
           provider: body.provider,
@@ -29,7 +31,6 @@ export function agentRunRoutes(db: Db) {
       },
       {
         body: t.Object({
-          tenantId: t.Number(),
           projectId: t.Number(),
           ticketId: t.Optional(t.Number()),
           provider: t.Union([t.Literal("claude"), t.Literal("codex")]),

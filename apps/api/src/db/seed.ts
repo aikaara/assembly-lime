@@ -17,18 +17,18 @@ async function seed() {
     .onConflictDoNothing()
     .returning();
 
-  const tenantId = tenant?.id;
-  if (!tenantId) {
+  let resolvedTenantId = tenant?.id;
+  if (!resolvedTenantId) {
     console.log("Dev tenant already exists, looking up...");
     const existing = await db.query.tenants.findFirst({
       where: (t, { eq }) => eq(t.slug, "dev"),
     });
     if (!existing) throw new Error("Failed to find or create dev tenant");
-    await seedRoles(existing.id);
-    return;
+    resolvedTenantId = existing.id;
   }
 
-  await seedRoles(tenantId);
+  await seedRoles(resolvedTenantId);
+  await seedProject(resolvedTenantId);
 }
 
 async function seedRoles(tenantId: number) {
@@ -42,6 +42,15 @@ async function seedRoles(tenantId: number) {
   }
 
   console.log(`Seeded roles: ${roleNames.join(", ")} for tenant ${tenantId}`);
+}
+
+async function seedProject(tenantId: number) {
+  await db
+    .insert(schema.projects)
+    .values({ tenantId, name: "Dev Project", key: "DEV" })
+    .onConflictDoNothing();
+
+  console.log(`Seeded project "Dev Project" for tenant ${tenantId}`);
   console.log("Seed complete.");
   process.exit(0);
 }

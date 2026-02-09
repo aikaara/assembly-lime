@@ -34,12 +34,15 @@ export const users = pgTable(
       .references(() => tenants.id),
     email: text("email").notNull(), // citext handled via migration SQL
     name: text("name"),
+    avatarUrl: text("avatar_url"),
+    githubLogin: text("github_login"),
     githubUserId: bigint("github_user_id", { mode: "number" }),
     status: smallint("status").notNull().default(1),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex("users_tenant_email_uniq").on(t.tenantId, t.email),
+    uniqueIndex("users_github_user_id_uniq").on(t.githubUserId),
     index("users_tenant_status_idx").on(t.tenantId, t.status),
     index("users_tenant_github_idx").on(t.tenantId, t.githubUserId),
   ]
