@@ -4,10 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+      "dev": ". $NVM_DIR/nvm.sh && nvm exec 24 npx vite",
+    "build": ". $NVM_DIR/nvm.sh && nvm exec 24 npx tsc -b && nvm exec 24 npx vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": ". $NVM_DIR/nvm.sh && nvm exec 24 npx vite preview"
   },
   "dependencies": {
     "react": "^19.2.0",

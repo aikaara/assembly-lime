@@ -13,7 +13,7 @@ Assembly Lime is a multi-tenant software factory dashboard where PM/Dev/QA colla
 
 ## Tech Stack
 
-- **Runtime:** Bun (web, api, claude worker); Node 20 (codex worker only)
+- **Runtime:** Bun (api, claude worker); Node 24 via nvm (web/Vite, codex worker)
 - **Language:** TypeScript everywhere
 - **API framework:** Elysia (Bun-native)
 - **Frontend:** React + Vite + Tailwind + Radix UI, drag/drop via `@dnd-kit`
