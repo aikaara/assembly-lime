@@ -6,9 +6,19 @@
   "scripts": {
     "dev": "bun run --filter '@assembly-lime/api' dev",
     "dev:web": "bun run --filter '@assembly-lime/web' dev",
-    "dev:all": "bun run --filter '*' dev"
+    "dev:all": "bun run --filter '*' dev",
+    "db:generate": "drizzle-kit generate --config apps/api/drizzle.config.ts",
+    "db:migrate": "drizzle-kit migrate --config apps/api/drizzle.config.ts",
+    "db:push": "drizzle-kit push --config apps/api/drizzle.config.ts",
+    "db:studio": "drizzle-kit studio --config apps/api/drizzle.config.ts",
+    "db:seed": "bun run apps/api/src/db/seed.ts"
   },
   "devDependencies": {
-    "bun-types": "latest"
+    "bun-types": "latest",
+    "drizzle-kit": "^0.31.9",
+    "drizzle-orm": "^0.45.1"
+  },
+  "dependencies": {
+    "postgres": "^3.4.8"
   }
 }
