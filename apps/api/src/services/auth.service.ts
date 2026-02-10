@@ -48,10 +48,15 @@ export async function findOrCreateUserFromGitHub(
       })
       .where(eq(users.id, existing.id));
 
-    // Auto-sync connector + repos (fire-and-forget)
-    ensureConnectorAndSyncRepos(db, existing.tenantId, accessToken).catch((err) =>
-      log.error({ err, tenantId: existing.tenantId }, "background repo sync failed")
-    );
+    // Ensure connector exists, then sync repos in the background
+    try {
+      const connectorId = await ensureConnector(db, existing.tenantId, accessToken);
+      syncReposFromGitHub(db, existing.tenantId, connectorId, accessToken).catch((err) =>
+        log.error({ err, tenantId: existing.tenantId }, "background repo sync failed")
+      );
+    } catch (err) {
+      log.error({ err, tenantId: existing.tenantId }, "failed to create/update connector on login");
+    }
 
     return { userId: existing.id, tenantId: existing.tenantId };
   }
@@ -107,60 +112,77 @@ export async function findOrCreateUserFromGitHub(
     columnsJson: DEFAULT_COLUMNS,
   });
 
-  // Auto-create connector + sync repos (fire-and-forget)
-  ensureConnectorAndSyncRepos(db, tenantId, accessToken).catch((err) =>
-    log.error({ err, tenantId }, "background repo sync failed")
-  );
+  // Ensure connector exists, then sync repos in the background
+  try {
+    const connectorId = await ensureConnector(db, tenantId, accessToken);
+    syncReposFromGitHub(db, tenantId, connectorId, accessToken).catch((err) =>
+      log.error({ err, tenantId }, "background repo sync failed")
+    );
+  } catch (err) {
+    log.error({ err, tenantId }, "failed to create connector on first login");
+  }
 
   return { userId, tenantId };
 }
 
-// ── Auto-create connector + sync repos on login ─────────────────────
+// ── Connector + repo sync on login ──────────────────────────────────
 
 const GITHUB_API = "https://api.github.com";
 
-async function ensureConnectorAndSyncRepos(
+/**
+ * Create or update the GitHub connector for this tenant.
+ * This MUST be awaited during login so the connector always exists.
+ */
+async function ensureConnector(
   db: Db,
   tenantId: number,
   accessToken: string,
-) {
-  // 1. Check for existing active connector for this tenant
+): Promise<number> {
   const existing = await db
     .select()
     .from(connectors)
     .where(and(eq(connectors.tenantId, tenantId), eq(connectors.status, 1)))
     .limit(1);
 
-  let connectorId: number;
   const accessTokenEnc = encryptToken(accessToken);
 
   if (existing.length > 0) {
-    // Update the token on the existing connector (OAuth tokens refresh on each login)
-    connectorId = existing[0]!.id;
+    const connectorId = existing[0]!.id;
     await db
       .update(connectors)
       .set({ accessTokenEnc })
       .where(eq(connectors.id, connectorId));
     log.info({ connectorId, tenantId }, "updated existing connector token");
-  } else {
-    // Create a new connector
-    const [row] = await db
-      .insert(connectors)
-      .values({
-        tenantId,
-        provider: 1, // github
-        externalOrg: null, // personal repos via /user/repos
-        authType: 1, // oauth
-        accessTokenEnc,
-        scopesJson: ["repo", "read:user"],
-        status: 1,
-      })
-      .returning();
-    connectorId = row!.id;
-    log.info({ connectorId, tenantId }, "auto-created connector from OAuth");
+    return connectorId;
   }
 
-  // 2. Fetch repos from GitHub
+  const [row] = await db
+    .insert(connectors)
+    .values({
+      tenantId,
+      provider: 1, // github
+      externalOrg: null, // personal repos via /user/repos
+      authType: 1, // oauth
+      accessTokenEnc,
+      scopesJson: ["repo", "read:user"],
+      status: 1,
+    })
+    .returning();
+
+  const connectorId = row!.id;
+  log.info({ connectorId, tenantId }, "auto-created connector from OAuth");
+  return connectorId;
+}
+
+/**
+ * Fetch repos from GitHub and import them. Safe to run as fire-and-forget.
+ */
+async function syncReposFromGitHub(
+  db: Db,
+  tenantId: number,
+  connectorId: number,
+  accessToken: string,
+) {
   const res = await fetch(`${GITHUB_API}/user/repos?per_page=100&sort=updated`, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -183,7 +205,6 @@ async function ensureConnectorAndSyncRepos(
     owner: { login: string };
   }>;
 
-  // 3. Import repos (upsert — skip duplicates)
   let imported = 0;
   for (const r of ghRepos) {
     const [row] = await db

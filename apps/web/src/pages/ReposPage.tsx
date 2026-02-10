@@ -57,11 +57,12 @@ export function ReposPage() {
         "/repositories/sync"
       );
       if (result.error === "no_connector") {
-        setSyncResult(result.message ?? "No connector found. Please connect GitHub first.");
-      } else {
-        setSyncResult(`${result.fetched} repos found, ${result.imported} new imported`);
-        await loadRepos();
+        // No connector — re-authenticate to create one
+        window.location.href = `${API_BASE}/auth/github`;
+        return;
       }
+      setSyncResult(`${result.fetched} repos found, ${result.imported} new imported`);
+      await loadRepos();
     } catch (err) {
       console.error("Sync failed:", err);
       setSyncResult("Sync failed. Try connecting GitHub first.");
