@@ -1,7 +1,9 @@
 import { eq, and } from "drizzle-orm";
 import type { Db } from "@assembly-lime/shared/db";
-import { connectors } from "@assembly-lime/shared/db/schema";
+import { connectors, k8sClusters, tenants } from "@assembly-lime/shared/db/schema";
 import { encryptToken, decryptToken } from "../lib/encryption";
+import { getClusterClient } from "./k8s-cluster.service";
+import { tenantNamespace, deleteGitCredentialSecret } from "./namespace-provisioner.service";
 import { childLogger } from "../lib/logger";
 
 const log = childLogger({ module: "connector-service" });
@@ -70,6 +72,38 @@ export async function revokeConnector(db: Db, tenantId: number, connectorId: num
     .where(and(eq(connectors.id, connectorId), eq(connectors.tenantId, tenantId)))
     .returning();
 
-  if (row) log.info({ connectorId, tenantId }, "connector revoked");
+  if (row) {
+    log.info({ connectorId, tenantId }, "connector revoked");
+
+    // Clean up git credential secrets from all tenant clusters
+    try {
+      const [tenant] = await db
+        .select({ slug: tenants.slug })
+        .from(tenants)
+        .where(eq(tenants.id, tenantId));
+
+      if (tenant) {
+        const clusters = await db
+          .select()
+          .from(k8sClusters)
+          .where(eq(k8sClusters.tenantId, tenantId));
+
+        const ns = tenantNamespace(tenant.slug);
+        const secretName = `git-cred-${connectorId}`;
+
+        for (const cluster of clusters) {
+          try {
+            const kc = await getClusterClient(db, tenantId, cluster.id);
+            await deleteGitCredentialSecret(kc, ns, secretName);
+          } catch (err) {
+            log.warn({ err, clusterId: cluster.id, secretName }, "failed to delete git credential secret from cluster");
+          }
+        }
+      }
+    } catch (err) {
+      log.warn({ err, connectorId }, "failed to clean up K8s git credential secrets on revoke");
+    }
+  }
+
   return row ?? null;
 }

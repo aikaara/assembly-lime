@@ -56,6 +56,9 @@ export type AgentJobPayload = {
   inputPrompt: string;
   repo?: {
     repositoryId: number;
+    connectorId: number;
+    owner: string;
+    name: string;
     cloneUrl: string;
     defaultBranch: string;
     ref?: string;
@@ -71,6 +74,11 @@ export type AgentJobPayload = {
     timeBudgetSec?: number;
     maxCostCents?: number;
     allowedTools?: string[];
+  };
+  k8s?: {
+    clusterId: number;
+    namespace: string;
+    gitCredentialSecretName: string;
   };
   images?: ImageAttachment[];
 };

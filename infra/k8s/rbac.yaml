@@ -1,14 +1,25 @@
+# Per-tenant namespace RBAC template
+# Actual resources are created programmatically by namespace-provisioner.service.ts
+# This file serves as a reference for the al-agent-sa service account pattern.
+#
+# Each tenant gets namespace: al-{tenantSlug}
+# Resources below are created per-tenant namespace.
+---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: agent-worker-sa
-  namespace: assembly-lime
+  name: al-agent-sa
+  namespace: al-{TENANT_SLUG}
+  labels:
+    app.kubernetes.io/part-of: assembly-lime
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: agent-worker-role
-  namespace: assembly-lime
+  name: al-agent-role
+  namespace: al-{TENANT_SLUG}
+  labels:
+    app.kubernetes.io/part-of: assembly-lime
 rules:
   - apiGroups: [""]
     resources: ["pods", "pods/log"]
@@ -16,26 +27,36 @@ rules:
   - apiGroups: ["batch"]
     resources: ["jobs"]
     verbs: ["create", "get", "list", "watch", "delete"]
-  - apiGroups: ["apps"]
-    resources: ["deployments"]
-    verbs: ["create", "get", "list", "update", "delete"]
   - apiGroups: [""]
-    resources: ["services"]
-    verbs: ["create", "get", "list", "update", "delete"]
-  - apiGroups: ["networking.k8s.io"]
-    resources: ["ingresses"]
-    verbs: ["create", "get", "list", "update", "delete"]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: agent-worker-binding
-  namespace: assembly-lime
+  name: al-agent-binding
+  namespace: al-{TENANT_SLUG}
+  labels:
+    app.kubernetes.io/part-of: assembly-lime
 subjects:
   - kind: ServiceAccount
-    name: agent-worker-sa
-    namespace: assembly-lime
+    name: al-agent-sa
+    namespace: al-{TENANT_SLUG}
 roleRef:
   kind: Role
-  name: agent-worker-role
+  name: al-agent-role
   apiGroup: rbac.authorization.k8s.io
+---
+# ResourceQuota — defaults, overridable per-tenant in provisioner config
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: al-agent-quota
+  namespace: al-{TENANT_SLUG}
+  labels:
+    app.kubernetes.io/part-of: assembly-lime
+spec:
+  hard:
+    requests.cpu: "8"
+    requests.memory: "16Gi"
+    pods: "20"

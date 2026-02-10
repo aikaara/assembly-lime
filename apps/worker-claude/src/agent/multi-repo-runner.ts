@@ -35,6 +35,9 @@ export async function runClaudeAgentMultiRepo(
       ...payload,
       repo: {
         repositoryId: repo.repositoryId,
+        connectorId: 0,
+        owner: "",
+        name: "",
         cloneUrl: repo.cloneUrl,
         defaultBranch: repo.defaultBranch,
         ref: repo.ref,

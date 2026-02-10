@@ -22,6 +22,7 @@ export function agentRunRoutes(db: Db) {
           provider: body.provider,
           mode: body.mode,
           prompt: body.prompt,
+          clusterId: body.clusterId,
           repo: body.repo,
           constraints: body.constraints,
         });
@@ -38,6 +39,7 @@ export function agentRunRoutes(db: Db) {
         body: t.Object({
           projectId: t.Number(),
           ticketId: t.Optional(t.Number()),
+          clusterId: t.Optional(t.Number()),
           provider: t.Union([t.Literal("claude"), t.Literal("codex")]),
           mode: t.Union([
             t.Literal("plan"),
@@ -49,6 +51,9 @@ export function agentRunRoutes(db: Db) {
           repo: t.Optional(
             t.Object({
               repositoryId: t.Number(),
+              connectorId: t.Optional(t.Number()),
+              owner: t.Optional(t.String()),
+              name: t.Optional(t.String()),
               cloneUrl: t.String(),
               defaultBranch: t.String(),
               ref: t.Optional(t.String()),

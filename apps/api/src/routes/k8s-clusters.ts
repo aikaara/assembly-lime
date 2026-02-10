@@ -1,5 +1,7 @@
 import { Elysia, t } from "elysia";
+import { eq } from "drizzle-orm";
 import type { Db } from "@assembly-lime/shared/db";
+import { tenants } from "@assembly-lime/shared/db/schema";
 import { requireAuth } from "../middleware/auth";
 import {
   registerCluster,
@@ -11,6 +13,12 @@ import { childLogger } from "../lib/logger";
 
 const log = childLogger({ module: "k8s-cluster-routes" });
 
+async function getTenantSlug(db: Db, tenantId: number): Promise<string> {
+  const [tenant] = await db.select({ slug: tenants.slug }).from(tenants).where(eq(tenants.id, tenantId));
+  if (!tenant) throw new Error("Tenant not found");
+  return tenant.slug;
+}
+
 export function k8sClusterRoutes(db: Db) {
   return new Elysia({ prefix: "/k8s-clusters" })
     .use(requireAuth)
@@ -18,11 +26,13 @@ export function k8sClusterRoutes(db: Db) {
       "/",
       async ({ auth, body }) => {
         log.info({ tenantId: auth!.tenantId, name: body.name }, "registering k8s cluster");
+        const slug = await getTenantSlug(db, auth!.tenantId);
         const row = await registerCluster(db, auth!.tenantId, {
           name: body.name,
           apiUrl: body.apiUrl,
           kubeconfig: body.kubeconfig,
           authType: body.authType,
+          tenantSlug: slug,
         });
         return {
           id: String(row.id),
@@ -93,7 +103,8 @@ export function k8sClusterRoutes(db: Db) {
     .delete(
       "/:id",
       async ({ auth, params }) => {
-        const row = await deleteCluster(db, auth!.tenantId, Number(params.id));
+        const slug = await getTenantSlug(db, auth!.tenantId);
+        const row = await deleteCluster(db, auth!.tenantId, Number(params.id), slug);
         if (!row) return { error: "not found" };
         return { id: String(row.id), deleted: true };
       },

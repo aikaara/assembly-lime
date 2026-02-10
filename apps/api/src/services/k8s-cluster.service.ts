@@ -4,6 +4,7 @@ import type { Db } from "@assembly-lime/shared/db";
 import { k8sClusters } from "@assembly-lime/shared/db/schema";
 import { encryptToken, decryptToken } from "../lib/encryption";
 import { childLogger } from "../lib/logger";
+import { provisionTenantNamespace, teardownTenantNamespace } from "./namespace-provisioner.service";
 
 const log = childLogger({ module: "k8s-cluster-service" });
 
@@ -12,6 +13,7 @@ type RegisterClusterInput = {
   apiUrl: string;
   kubeconfig?: string;
   authType?: number;
+  tenantSlug: string;
 };
 
 export function createClusterClient(kubeconfigYaml: string): k8s.KubeConfig {
@@ -60,6 +62,13 @@ export async function registerCluster(db: Db, tenantId: number, input: RegisterC
         .where(eq(k8sClusters.id, row!.id));
 
       log.info({ clusterId: row!.id, tenantId }, "cluster registered and connected");
+
+      // Provision tenant namespace on the cluster
+      try {
+        await provisionTenantNamespace(db, tenantId, input.tenantSlug, row!.id);
+      } catch (nsErr) {
+        log.error({ err: nsErr, clusterId: row!.id }, "failed to provision tenant namespace");
+      }
     }
   } catch (err) {
     await db
@@ -139,7 +148,14 @@ export async function getClusterClient(
   return createClusterClient(yaml);
 }
 
-export async function deleteCluster(db: Db, tenantId: number, clusterId: number) {
+export async function deleteCluster(db: Db, tenantId: number, clusterId: number, tenantSlug: string) {
+  // Tear down tenant namespace before deleting DB row
+  try {
+    await teardownTenantNamespace(db, tenantId, tenantSlug, clusterId);
+  } catch (err) {
+    log.warn({ err, clusterId, tenantId }, "failed to teardown tenant namespace (proceeding with deletion)");
+  }
+
   const [row] = await db
     .delete(k8sClusters)
     .where(and(eq(k8sClusters.id, clusterId), eq(k8sClusters.tenantId, tenantId)))
