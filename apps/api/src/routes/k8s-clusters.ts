@@ -47,7 +47,7 @@ export function k8sClusterRoutes(db: Db) {
       {
         body: t.Object({
           name: t.String({ minLength: 1 }),
-          apiUrl: t.String({ minLength: 1 }),
+          apiUrl: t.Optional(t.String({ minLength: 1 })),
           kubeconfig: t.Optional(t.String()),
           authType: t.Optional(t.Number()),
         }),

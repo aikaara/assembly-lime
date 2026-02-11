@@ -15,6 +15,7 @@ export function ClustersPage() {
   const [apiUrl, setApiUrl] = useState("");
   const [kubeconfig, setKubeconfig] = useState("");
   const [creating, setCreating] = useState(false);
+  const [kubeconfigDetectedUrl, setKubeconfigDetectedUrl] = useState("");
 
   useEffect(() => {
     loadClusters();
@@ -32,18 +33,42 @@ export function ClustersPage() {
     }
   }
 
+  /** Try to extract server URL from pasted kubeconfig YAML. */
+  function parseServerFromKubeconfig(yaml: string): string {
+    try {
+      // Match the first `server:` value in the kubeconfig
+      const match = yaml.match(/server:\s*(https?:\/\/\S+)/);
+      return match?.[1] ?? "";
+    } catch {
+      return "";
+    }
+  }
+
+  function handleKubeconfigChange(value: string) {
+    setKubeconfig(value);
+    const detected = parseServerFromKubeconfig(value);
+    setKubeconfigDetectedUrl(detected);
+    // Auto-fill API URL if user hasn't manually entered one
+    if (detected && !apiUrl) {
+      setApiUrl(detected);
+    }
+  }
+
+  const canSubmit = !!name && (!!apiUrl || !!kubeconfigDetectedUrl);
+
   async function handleCreate() {
-    if (!name || !apiUrl) return;
+    if (!canSubmit) return;
     setCreating(true);
     try {
       await api.post("/k8s-clusters/", {
         name,
-        apiUrl,
+        apiUrl: apiUrl || undefined,
         kubeconfig: kubeconfig || undefined,
       });
       setName("");
       setApiUrl("");
       setKubeconfig("");
+      setKubeconfigDetectedUrl("");
       setShowCreate(false);
       await loadClusters();
     } catch (err) {
@@ -109,25 +134,30 @@ export function ClustersPage() {
               onChange={(e) => setName(e.target.value)}
               className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
             />
+            <textarea
+              placeholder="Kubeconfig YAML (paste your ~/.kube/config here)"
+              value={kubeconfig}
+              onChange={(e) => handleKubeconfigChange(e.target.value)}
+              rows={4}
+              className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none font-mono"
+            />
+            {kubeconfigDetectedUrl && !apiUrl && (
+              <p className="text-xs text-zinc-500">
+                Server detected from kubeconfig: <span className="text-zinc-400">{kubeconfigDetectedUrl}</span>
+              </p>
+            )}
             <input
               type="text"
-              placeholder="API URL (e.g. https://k8s.example.com:6443)"
+              placeholder="API URL override (auto-detected from kubeconfig)"
               value={apiUrl}
               onChange={(e) => setApiUrl(e.target.value)}
               className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
-            />
-            <textarea
-              placeholder="Kubeconfig YAML (optional)"
-              value={kubeconfig}
-              onChange={(e) => setKubeconfig(e.target.value)}
-              rows={4}
-              className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none font-mono"
             />
           </div>
           <div className="flex gap-2">
             <button
               onClick={handleCreate}
-              disabled={creating || !name || !apiUrl}
+              disabled={creating || !canSubmit}
               className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors"
             >
               {creating ? "Registering..." : "Register"}
@@ -180,6 +210,11 @@ export function ClustersPage() {
                   </button>
                 </div>
               </div>
+              {c.status === "error" && c.metadataJson && (c.metadataJson as any).error && (
+                <p className="mt-2 text-xs text-red-400">
+                  {(c.metadataJson as any).error}
+                </p>
+              )}
               {c.metadataJson && typeof c.metadataJson === "object" && (
                 <div className="mt-2 flex gap-4 text-xs text-zinc-500">
                   {(c.metadataJson as any).gitVersion && (
