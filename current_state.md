@@ -1,7 +1,7 @@
 # Assembly Lime — Current State
 
-**Last updated:** 2026-02-10
-**Latest commit:** `2155a15` — K8s agent workspaces with git pipeline
+**Last updated:** 2026-02-11
+**Latest commit:** `8d81d93` — K8s cluster registration UX + Bun TLS fix + error display
 
 ---
 
@@ -322,3 +322,48 @@ On connector revoke: deletes git credential Secrets across all tenant clusters.
 - Budget enforcement / cost tracking
 - Hook sandbox execution
 - Pipeline integration (GitHub Actions visibility)
+
+---
+
+## Security Audit (2026-02-11)
+
+### Encryption
+
+- **Algorithm:** AES-256-GCM (authenticated encryption) via `apps/api/src/lib/encryption.ts`
+- **IV:** Cryptographically-secure random 12 bytes per encryption
+- **Auth tag:** 16-byte GCM tag for tamper detection
+- **Key:** `ENCRYPTION_MASTER_KEY` env var, validated as 64 hex chars (32 bytes), never logged
+
+### Encrypted Data at Rest
+
+| Data | DB Column | Type |
+|------|-----------|------|
+| GitHub access tokens | `connectors.access_token_enc` | bytea |
+| GitHub refresh tokens | `connectors.refresh_token_enc` | bytea |
+| Webhook secrets | `webhooks.secret_enc` | bytea |
+| Kubeconfig YAML | `k8s_clusters.kubeconfig_enc` | bytea |
+| Env vars | `env_vars.value_enc` | bytea |
+
+### Audit Results
+
+| Category | Status |
+|----------|--------|
+| Hardcoded secrets in source | PASS — none found |
+| Encryption implementation | PASS — AES-256-GCM, secure IVs, auth tags |
+| Secrets in API responses | PASS — encrypted fields excluded from all JSON responses |
+| Secrets in logs | PASS — Pino structured logging, only IDs/names/counts logged |
+| Secrets in git history | PASS — `.env` in `.gitignore` |
+| Kubeconfig handling | PASS — encrypted before DB, decrypted in-memory only, never in responses |
+| OAuth token handling | PASS — encrypted immediately after GitHub exchange, never logged |
+| K8s secret management | PASS — git tokens in K8s Opaque secrets, mounted read-only in pods |
+
+### Recommendations (Non-Blocking)
+
+1. **Webhook signature verification** — webhook secret is stored encrypted but receiver endpoint not yet implemented; ensure HMAC-SHA256 validation when added
+2. **Encryption key rotation** — single master key; add key versioning for future rotation
+3. **K8s secret TTL** — git tokens in K8s secrets have no expiry; add cleanup/rotation for production
+4. **S3 defaults** — `minioadmin` defaults in `s3.ts` are dev-only; must override via env vars in production
+
+### Bun TLS Compatibility Fix
+
+`@kubernetes/client-node` v1.4.0 sets cluster CA certs via `https.Agent`, which is a no-op stub on Bun. Fix: patch `IsomorphicFetchHttpLibrary.prototype.send` to use Bun's native `fetch` with `tls: { ca }` for registered cluster URLs. Transparent to all `makeApiClient` callers across the codebase.
