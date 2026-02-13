@@ -238,7 +238,11 @@ export function RepoDependencyGraphPage() {
           ) : (
             <RefreshCw className="h-3.5 w-3.5" />
           )}
-          {scanning ? "Scanning..." : "Scan Dependencies"}
+          {scanning
+            ? "Scanning..."
+            : edges.length > 0
+              ? "Rescan Dependencies"
+              : "Scan Dependencies"}
         </button>
       </div>
 

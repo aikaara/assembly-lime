@@ -9,6 +9,7 @@ import {
 import { getConnectorToken } from "./connector.service";
 import { storeDependencies, clearDependencies } from "./repo-dependency.service";
 import type { DependencyEdge } from "./repo-dependency.service";
+import type { JobLogger } from "../lib/bullmq";
 import { childLogger } from "../lib/logger";
 
 const log = childLogger({ module: "dependency-scanner" });
@@ -42,6 +43,10 @@ type RepoManifest = {
   files: { path: string; content: string }[];
 };
 
+/** Noop logger for non-BullMQ callers */
+const noopLog: JobLogger = async () => {};
+const noopProgress = async (_: number) => {};
+
 async function fetchFileContent(
   token: string,
   owner: string,
@@ -68,7 +73,9 @@ async function fetchFileContent(
 
 async function gatherRepoManifests(
   db: Db,
-  tenantId: number
+  tenantId: number,
+  jobLog: JobLogger,
+  updateProgress: (pct: number) => Promise<void>
 ): Promise<RepoManifest[]> {
   const repos = await db
     .select()
@@ -79,6 +86,8 @@ async function gatherRepoManifests(
 
   if (repos.length === 0) return [];
 
+  await jobLog(`Found ${repos.length} enabled repositories`);
+
   // Get first active connector for token
   const [connector] = await db
     .select()
@@ -87,23 +96,27 @@ async function gatherRepoManifests(
     .limit(1);
 
   if (!connector) {
-    log.warn({ tenantId }, "no active connector found for dependency scan");
+    await jobLog("No active GitHub connector found — aborting scan");
     return [];
   }
 
   const token = getConnectorToken(connector);
   const manifests: RepoManifest[] = [];
 
-  for (const repo of repos) {
+  for (let i = 0; i < repos.length; i++) {
+    const repo = repos[i]!;
     const files: { path: string; content: string }[] = [];
+
+    await jobLog(`[${i + 1}/${repos.length}] Fetching manifests for ${repo.fullName}`);
 
     for (const filePath of DEPENDENCY_FILES) {
       const content = await fetchFileContent(token, repo.owner, repo.name, filePath);
       if (content) {
-        // Limit file content to 8KB to avoid overloading the prompt
         files.push({ path: filePath, content: content.slice(0, 8192) });
       }
     }
+
+    await jobLog(`  → ${repo.fullName}: found ${files.length} manifest file(s)${files.length > 0 ? ` (${files.map(f => f.path).join(", ")})` : ""}`);
 
     manifests.push({
       repoId: repo.id,
@@ -112,7 +125,14 @@ async function gatherRepoManifests(
       name: repo.name,
       files,
     });
+
+    // Progress: 5% – 60% for fetching manifests
+    const fetchProgress = 5 + Math.round(((i + 1) / repos.length) * 55);
+    await updateProgress(fetchProgress);
   }
+
+  const totalFiles = manifests.reduce((sum, m) => sum + m.files.length, 0);
+  await jobLog(`Manifest collection complete: ${manifests.length} repos, ${totalFiles} files total`);
 
   return manifests;
 }
@@ -147,7 +167,9 @@ Rules:
 - Return ONLY the JSON array, no markdown fencing, no explanation`;
 
 async function analyzeDependenciesWithClaude(
-  manifests: RepoManifest[]
+  manifests: RepoManifest[],
+  jobLog: JobLogger,
+  updateProgress: (pct: number) => Promise<void>
 ): Promise<
   Array<{
     source: string;
@@ -169,38 +191,57 @@ async function analyzeDependenciesWithClaude(
   }));
 
   const userMessage = `Here are the repositories and their dependency manifests:\n\n${JSON.stringify(repoSummaries, null, 2)}`;
+  const inputChars = userMessage.length;
+
+  await jobLog(`Calling Claude API to analyze dependencies (${Math.round(inputChars / 1024)}KB context)...`);
+  await updateProgress(65);
 
   const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-5-20250929",
+    model: "claude-haiku-4-5-20251001",
     max_tokens: 4096,
     system: SCAN_SYSTEM_PROMPT,
     messages: [{ role: "user", content: userMessage }],
   });
 
+  const usage = response.usage;
+  await jobLog(`Claude API response received — input_tokens: ${usage.input_tokens}, output_tokens: ${usage.output_tokens}`);
+  await updateProgress(80);
+
   const text =
     response.content[0]?.type === "text" ? response.content[0].text : "";
 
   try {
-    // Try to parse the raw text as JSON
     const parsed = JSON.parse(text);
-    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed)) {
+      await jobLog(`Claude returned ${parsed.length} dependency edge(s)`);
+      return parsed;
+    }
+    await jobLog("Claude returned non-array JSON, treating as empty");
     return [];
   } catch {
     // Try to extract JSON array from the response
     const match = text.match(/\[[\s\S]*\]/);
     if (match) {
       try {
-        return JSON.parse(match[0]);
+        const parsed = JSON.parse(match[0]);
+        await jobLog(`Extracted ${parsed.length} dependency edge(s) from Claude response`);
+        return parsed;
       } catch {
-        log.warn("failed to parse Claude dependency analysis response");
+        await jobLog("Failed to parse extracted JSON from Claude response");
         return [];
       }
     }
+    await jobLog("Claude response was not parseable JSON — no dependencies extracted");
     return [];
   }
 }
 
-export async function scanAllDependencies(db: Db, tenantId: number) {
+export async function scanAllDependencies(
+  db: Db,
+  tenantId: number,
+  jobLog: JobLogger = noopLog,
+  updateProgress: (pct: number) => Promise<void> = noopProgress
+) {
   // Create scan record
   const [scan] = await db
     .insert(dependencyScans)
@@ -208,6 +249,7 @@ export async function scanAllDependencies(db: Db, tenantId: number) {
     .returning();
 
   const scanId = scan!.id;
+  await jobLog(`Created scan record #${scanId}`);
 
   try {
     // Update to running
@@ -216,10 +258,14 @@ export async function scanAllDependencies(db: Db, tenantId: number) {
       .set({ status: "running", startedAt: new Date() })
       .where(eq(dependencyScans.id, scanId));
 
+    await jobLog("Scan status → running");
+    await updateProgress(5);
+
     // Gather manifests
-    const manifests = await gatherRepoManifests(db, tenantId);
+    const manifests = await gatherRepoManifests(db, tenantId, jobLog, updateProgress);
 
     if (manifests.length === 0) {
+      await jobLog("No enabled repos found — scan complete with 0 dependencies");
       await db
         .update(dependencyScans)
         .set({
@@ -232,30 +278,46 @@ export async function scanAllDependencies(db: Db, tenantId: number) {
       return { scanId, reposScanned: 0, depsFound: 0 };
     }
 
+    // Check if any repo has manifest files (skip AI if none)
+    const totalFiles = manifests.reduce((sum, m) => sum + m.files.length, 0);
+    if (totalFiles === 0) {
+      await jobLog("No dependency manifest files found in any repo — skipping AI analysis");
+      await db
+        .update(dependencyScans)
+        .set({
+          status: "completed",
+          reposScanned: manifests.length,
+          depsFound: 0,
+          completedAt: new Date(),
+        })
+        .where(eq(dependencyScans.id, scanId));
+      return { scanId, reposScanned: manifests.length, depsFound: 0 };
+    }
+
     // Analyze with Claude
-    const rawDeps = await analyzeDependenciesWithClaude(manifests);
+    const rawDeps = await analyzeDependenciesWithClaude(manifests, jobLog, updateProgress);
 
     // Map fullName → repoId for resolution
     const nameToId = new Map<string, number>();
     for (const m of manifests) {
       nameToId.set(m.fullName, m.repoId);
-      // Also map by just repo name for partial matches
       nameToId.set(m.name, m.repoId);
     }
 
     // Convert raw deps to DB format
     const edges: DependencyEdge[] = [];
+    let skipped = 0;
     for (const dep of rawDeps) {
       const sourceId = nameToId.get(dep.source);
       const targetId = nameToId.get(dep.target);
       if (!sourceId || !targetId) {
-        log.debug(
-          { source: dep.source, target: dep.target },
-          "skipping dependency: repo not found"
-        );
+        skipped++;
         continue;
       }
-      if (sourceId === targetId) continue; // skip self-references
+      if (sourceId === targetId) {
+        skipped++;
+        continue;
+      }
 
       edges.push({
         sourceRepositoryId: sourceId,
@@ -267,9 +329,25 @@ export async function scanAllDependencies(db: Db, tenantId: number) {
       });
     }
 
+    if (skipped > 0) {
+      await jobLog(`Skipped ${skipped} unresolvable/self-referencing edge(s)`);
+    }
+
+    await jobLog(`Resolved ${edges.length} valid dependency edge(s)`);
+    await updateProgress(85);
+
+    // Log each edge
+    for (const edge of edges) {
+      const srcName = manifests.find(m => m.repoId === edge.sourceRepositoryId)?.fullName ?? "?";
+      const tgtName = manifests.find(m => m.repoId === edge.targetRepositoryId)?.fullName ?? "?";
+      await jobLog(`  ${srcName} → ${tgtName} [${edge.dependencyType}] (confidence: ${edge.confidence}%)`);
+    }
+
     // Clear old dependencies and store new ones
+    await jobLog("Clearing old dependencies and storing new edges...");
     await clearDependencies(db, tenantId);
     const depsStored = await storeDependencies(db, tenantId, edges);
+    await updateProgress(95);
 
     // Update scan to completed
     await db
@@ -281,6 +359,8 @@ export async function scanAllDependencies(db: Db, tenantId: number) {
         completedAt: new Date(),
       })
       .where(eq(dependencyScans.id, scanId));
+
+    await jobLog(`Scan complete — ${manifests.length} repos scanned, ${depsStored} dependencies stored`);
 
     log.info(
       { tenantId, scanId, reposScanned: manifests.length, depsFound: depsStored },
@@ -299,6 +379,7 @@ export async function scanAllDependencies(db: Db, tenantId: number) {
       })
       .where(eq(dependencyScans.id, scanId));
 
+    await jobLog(`SCAN FAILED: ${message}`);
     log.error({ tenantId, scanId, err: message }, "dependency scan failed");
     throw err;
   }

@@ -7,7 +7,7 @@ import { requireAuth } from "../middleware/auth";
 import { browseFileTree, getFileContent, listOrgRepos, importRepos } from "../services/github.service";
 import { getConnectorToken } from "../services/connector.service";
 import { scanRepoForConfigs, listRepoConfigs } from "../services/env-detection.service";
-import { scanAllDependencies } from "../services/dependency-scanner.service";
+import { depScanQueue } from "../lib/bullmq";
 import { ensureFork, getForkStatus } from "../services/fork.service";
 import { encryptToken } from "../lib/encryption";
 import { childLogger } from "../lib/logger";
@@ -181,9 +181,13 @@ export function repositoryRoutes(db: Db) {
         const imported = await importRepos(db, auth!.tenantId, connector.id, toImport);
         log.info({ tenantId: auth!.tenantId, fetched: ghRepos.length, imported: imported.length }, "repo sync complete");
 
-        // Fire-and-forget dependency scan after import
-        scanAllDependencies(db, auth!.tenantId).catch((err) => {
-          log.warn({ tenantId: auth!.tenantId, err }, "auto dependency scan after import failed");
+        // Enqueue dependency scan after import
+        depScanQueue.add(
+          `dep-scan-${auth!.tenantId}`,
+          { tenantId: auth!.tenantId },
+          { jobId: `dep-scan-post-sync-${auth!.tenantId}-${Date.now()}` }
+        ).catch((err) => {
+          log.warn({ tenantId: auth!.tenantId, err }, "failed to enqueue auto dependency scan");
         });
 
         return { fetched: ghRepos.length, imported: imported.length };

@@ -6,7 +6,7 @@ import {
   deleteDependency,
   getLatestScan,
 } from "../services/repo-dependency.service";
-import { scanAllDependencies } from "../services/dependency-scanner.service";
+import { depScanQueue } from "../lib/bullmq";
 import { childLogger } from "../lib/logger";
 
 const log = childLogger({ module: "repository-dependency-routes" });
@@ -46,23 +46,18 @@ export function repositoryDependencyRoutes(db: Db) {
       };
     })
     .post("/scan", async ({ auth }) => {
-      log.info({ tenantId: auth!.tenantId }, "triggering dependency scan");
+      const tenantId = auth!.tenantId;
+      log.info({ tenantId }, "enqueuing dependency scan");
 
-      // Fire and forget — return immediately with scan ID
-      const scanPromise = scanAllDependencies(db, auth!.tenantId).catch((err) => {
-        log.error({ tenantId: auth!.tenantId, err }, "background dependency scan failed");
-      });
-
-      // Wait briefly to get the scan ID (the scan row is created synchronously)
-      const scan = await getLatestScan(db, auth!.tenantId);
-
-      // Don't await the full scan
-      void scanPromise;
+      const job = await depScanQueue.add(
+        `dep-scan-${tenantId}`,
+        { tenantId },
+        { jobId: `dep-scan-${tenantId}-${Date.now()}` }
+      );
 
       return {
-        message: "Dependency scan started",
-        scanId: scan ? String(scan.id) : null,
-        status: scan?.status ?? "pending",
+        message: "Dependency scan queued",
+        jobId: job.id,
       };
     })
     .get("/scan-status", async ({ auth }) => {

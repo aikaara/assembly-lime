@@ -1,7 +1,11 @@
 import { Elysia } from "elysia";
+import { createBullBoard } from "@bull-board/api";
+import { BullMQAdapter } from "@bull-board/api/bullMQAdapter";
+import { ElysiaAdapter } from "@bull-board/elysia";
 import { db } from "./db";
 import { logger } from "./lib/logger";
 import { redis, redisSub } from "./lib/redis";
+import { claudeQueue, codexQueue, depScanQueue, startDepScanWorker } from "./lib/bullmq";
 import { authRoutes } from "./routes/auth";
 import { meRoutes } from "./routes/me";
 import { projectRoutes } from "./routes/projects";
@@ -19,6 +23,7 @@ import { toolDefinitionRoutes } from "./routes/tool-definitions";
 import { repositoryDependencyRoutes } from "./routes/repository-dependencies";
 import { wsRoutes, broadcastToWs } from "./routes/ws";
 import { startEventSubscriber } from "./services/event-subscriber";
+import { scanAllDependencies } from "./services/dependency-scanner.service";
 
 // Connect Redis clients (guard: BullMQ may have already connected the shared instance)
 if (redis.status === "wait") await redis.connect();
@@ -26,6 +31,22 @@ if (redisSub.status === "wait") await redisSub.connect();
 
 // Start event subscriber (Redis pub/sub → persist → WS broadcast)
 await startEventSubscriber(db, broadcastToWs);
+
+// Dependency scan worker (runs in-process)
+startDepScanWorker(async (tenantId, jobLog, updateProgress) => {
+  await scanAllDependencies(db, tenantId, jobLog, updateProgress);
+});
+
+// BullMQ Dashboard
+const bullBoardAdapter = new ElysiaAdapter("/bull-board");
+createBullBoard({
+  queues: [
+    new BullMQAdapter(claudeQueue),
+    new BullMQAdapter(codexQueue),
+    new BullMQAdapter(depScanQueue),
+  ],
+  serverAdapter: bullBoardAdapter,
+});
 
 const app = new Elysia()
   .onRequest(({ request }) => {
@@ -55,6 +76,7 @@ const app = new Elysia()
   .use(domainRoutes(db))
   .use(toolDefinitionRoutes(db))
   .use(repositoryDependencyRoutes(db))
+  .use(await bullBoardAdapter.registerPlugin())
   .use(wsRoutes())
   .listen(3434);
 
