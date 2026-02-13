@@ -1,4 +1,4 @@
-import { Box, Trash2 } from "lucide-react";
+import { Box, ExternalLink, Trash2 } from "lucide-react";
 import type { Sandbox } from "../../types";
 
 type Props = {
@@ -34,6 +34,17 @@ export function SandboxCard({ sandbox, onDestroy, onViewLogs }: Props) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {sandbox.sandboxUrl && isActive && (
+            <a
+              href={sandbox.sandboxUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 rounded-md bg-emerald-600/20 px-2.5 py-1 text-xs text-emerald-400 hover:bg-emerald-600/30 transition-colors"
+            >
+              <ExternalLink className="h-3 w-3" />
+              Open
+            </a>
+          )}
           {isActive && (
             <button
               onClick={() => onViewLogs(sandbox.id)}
@@ -52,15 +63,18 @@ export function SandboxCard({ sandbox, onDestroy, onViewLogs }: Props) {
           )}
         </div>
       </div>
-      {Array.isArray(sandbox.portsJson) && (sandbox.portsJson as any[]).length > 0 && (
-        <div className="mt-2 flex gap-2">
-          {(sandbox.portsJson as any[]).map((p: any, i: number) => (
-            <span key={i} className="text-xs text-zinc-500 bg-zinc-700 rounded px-1.5 py-0.5">
-              :{p.containerPort}
-            </span>
-          ))}
-        </div>
-      )}
+      <div className="mt-2 flex flex-wrap gap-2">
+        {Array.isArray(sandbox.portsJson) && (sandbox.portsJson as any[]).map((p: any, i: number) => (
+          <span key={i} className="text-xs text-zinc-500 bg-zinc-700 rounded px-1.5 py-0.5">
+            :{p.containerPort}{p.source ? ` (${p.source})` : ""}
+          </span>
+        ))}
+        {sandbox.sandboxUrl && (
+          <span className="text-xs text-emerald-500/70 bg-zinc-700 rounded px-1.5 py-0.5 truncate max-w-xs">
+            {sandbox.sandboxUrl}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

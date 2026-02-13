@@ -196,13 +196,17 @@ export type K8sCluster = {
 export type Sandbox = {
   id: string;
   tenantId: string;
-  clusterId: string;
+  clusterId: string | null;
   repositoryId: string;
   branch: string;
   k8sPod: string;
+  k8sService: string | null;
+  k8sIngress: string | null;
+  sandboxUrl: string | null;
   status: string;
   portsJson: unknown;
   createdAt: string;
+  destroyedAt: string | null;
 };
 
 export type Domain = {

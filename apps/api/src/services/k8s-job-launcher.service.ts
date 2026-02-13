@@ -56,7 +56,7 @@ export async function launchAgentK8sJob(
           initContainers: [
             {
               name: "git-clone",
-              image: "alpine/git:2.43",
+              image: "alpine/git:latest",
               command: [
                 "sh",
                 "-c",
