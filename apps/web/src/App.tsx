@@ -12,6 +12,7 @@ import { ConnectorsPage } from "./pages/ConnectorsPage";
 import { ClustersPage } from "./pages/ClustersPage";
 import { SandboxesPage } from "./pages/SandboxesPage";
 import { DomainsPage } from "./pages/DomainsPage";
+import { RepoDependencyGraphPage } from "./pages/RepoDependencyGraphPage";
 
 function App() {
   return (
@@ -30,6 +31,7 @@ function App() {
         <Route path="runs" element={<AgentRunsPage />} />
         <Route path="runs/:id" element={<RunDetailPage />} />
         <Route path="repos" element={<ReposPage />} />
+        <Route path="repos/dependencies" element={<RepoDependencyGraphPage />} />
         <Route path="repos/:id" element={<RepoDetailPage />} />
         <Route path="connectors" element={<ConnectorsPage />} />
         <Route path="clusters" element={<ClustersPage />} />

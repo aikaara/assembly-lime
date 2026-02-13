@@ -157,11 +157,44 @@ export type Repository = {
   id: string;
   tenantId: string;
   connectorId: string;
+  owner?: string;
+  name?: string;
   fullName: string;
   cloneUrl: string;
   defaultBranch: string;
   isEnabled: boolean;
+  forkOwner?: string | null;
+  forkFullName?: string | null;
+  forkCloneUrl?: string | null;
+  forkCreatedAt?: string | null;
   createdAt: string;
+};
+
+export type RepositoryDependency = {
+  id: string;
+  sourceRepositoryId: string;
+  targetRepositoryId: string;
+  dependencyType: string;
+  confidence: number;
+  detectedFrom: string | null;
+  metadata: Record<string, unknown>;
+  lastScannedAt: string;
+};
+
+export type DependencyScanStatus = {
+  id: string;
+  status: "pending" | "running" | "completed" | "failed";
+  reposScanned: number;
+  depsFound: number;
+  errorMessage: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+};
+
+export type DependencyGraphResponse = {
+  nodes: Repository[];
+  edges: RepositoryDependency[];
 };
 
 export type FileTreeEntry = {

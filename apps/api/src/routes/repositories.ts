@@ -7,6 +7,8 @@ import { requireAuth } from "../middleware/auth";
 import { browseFileTree, getFileContent, listOrgRepos, importRepos } from "../services/github.service";
 import { getConnectorToken } from "../services/connector.service";
 import { scanRepoForConfigs, listRepoConfigs } from "../services/env-detection.service";
+import { scanAllDependencies } from "../services/dependency-scanner.service";
+import { ensureFork, getForkStatus } from "../services/fork.service";
 import { encryptToken } from "../lib/encryption";
 import { childLogger } from "../lib/logger";
 
@@ -32,6 +34,10 @@ export function repositoryRoutes(db: Db) {
         cloneUrl: r.cloneUrl,
         defaultBranch: r.defaultBranch,
         isEnabled: r.isEnabled,
+        forkOwner: r.forkOwner,
+        forkFullName: r.forkFullName,
+        forkCloneUrl: r.forkCloneUrl,
+        forkCreatedAt: r.forkCreatedAt?.toISOString() ?? null,
         createdAt: r.createdAt.toISOString(),
       }));
     })
@@ -54,6 +60,10 @@ export function repositoryRoutes(db: Db) {
           cloneUrl: row.cloneUrl,
           defaultBranch: row.defaultBranch,
           isEnabled: row.isEnabled,
+          forkOwner: row.forkOwner,
+          forkFullName: row.forkFullName,
+          forkCloneUrl: row.forkCloneUrl,
+          forkCreatedAt: row.forkCreatedAt?.toISOString() ?? null,
           createdAt: row.createdAt.toISOString(),
         };
       },
@@ -170,6 +180,12 @@ export function repositoryRoutes(db: Db) {
         }));
         const imported = await importRepos(db, auth!.tenantId, connector.id, toImport);
         log.info({ tenantId: auth!.tenantId, fetched: ghRepos.length, imported: imported.length }, "repo sync complete");
+
+        // Fire-and-forget dependency scan after import
+        scanAllDependencies(db, auth!.tenantId).catch((err) => {
+          log.warn({ tenantId: auth!.tenantId, err }, "auto dependency scan after import failed");
+        });
+
         return { fetched: ghRepos.length, imported: imported.length };
       }
     )
@@ -294,5 +310,27 @@ export function repositoryRoutes(db: Db) {
         params: t.Object({ id: t.String() }),
         body: t.Object({ isEnabled: t.Boolean() }),
       }
+    )
+    .post(
+      "/:id/fork",
+      async ({ auth, params }) => {
+        try {
+          const fork = await ensureFork(db, auth!.tenantId, Number(params.id));
+          return fork;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          log.error({ repoId: params.id, err: msg }, "fork creation failed");
+          return { error: msg };
+        }
+      },
+      { params: t.Object({ id: t.String() }) }
+    )
+    .get(
+      "/:id/fork",
+      async ({ auth, params }) => {
+        const fork = await getForkStatus(db, auth!.tenantId, Number(params.id));
+        return { fork };
+      },
+      { params: t.Object({ id: t.String() }) }
     );
 }

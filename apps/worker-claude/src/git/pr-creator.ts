@@ -12,6 +12,7 @@ export type CreatePRInput = {
   title: string;
   body: string;
   draft?: boolean;
+  forkOwner?: string; // If set, head will be formatted as "forkOwner:branch" for cross-repo PRs
 };
 
 export type PRResult = {
@@ -44,7 +45,7 @@ export async function createPullRequest(
     body: JSON.stringify({
       title: input.title,
       body: input.body,
-      head: input.head,
+      head: input.forkOwner ? `${input.forkOwner}:${input.head}` : input.head,
       base: input.base,
       draft: input.draft ?? false,
     }),

@@ -130,9 +130,12 @@ export async function runWorkspaceAgent(
       const { commitSha, diffStats } = await commitAndPush(workDir, branch, commitMsg);
       await emitter.emitLog(`committed and pushed: ${commitSha}`);
 
-      // 8. Create PR
+      // 8. Create PR (fork-aware: if IS_FORK is set, use forkOwner for head prefix)
       try {
         const token = readGitToken();
+        const isFork = process.env.IS_FORK === "true";
+        const forkOwner = process.env.FORK_OWNER;
+
         const prResult = await createPullRequest(token, {
           owner: repo.owner,
           repo: repo.name,
@@ -146,6 +149,7 @@ export async function runWorkspaceAgent(
             diffStats,
           }),
           draft: payload.mode === "plan",
+          forkOwner: isFork && forkOwner ? forkOwner : undefined,
         });
 
         await emitter.emitArtifact("Pull Request", prResult.url);

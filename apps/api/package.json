@@ -12,6 +12,7 @@
     "db:seed": "bun run src/db/seed.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.74.0",
     "@assembly-lime/shared": "workspace:*",
     "@kubernetes/client-node": "^1.0.0",
     "bullmq": "^5.34.0",

@@ -59,6 +59,10 @@ export const repositories = pgTable(
     cloneUrl: text("clone_url").notNull(),
     defaultBranch: text("default_branch").notNull(),
     isEnabled: boolean("is_enabled").notNull().default(true),
+    forkOwner: text("fork_owner"),
+    forkFullName: text("fork_full_name"),
+    forkCloneUrl: text("fork_clone_url"),
+    forkCreatedAt: timestamp("fork_created_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

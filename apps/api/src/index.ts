@@ -16,6 +16,7 @@ import { sandboxRoutes } from "./routes/sandboxes";
 import { k8sClusterRoutes } from "./routes/k8s-clusters";
 import { domainRoutes } from "./routes/domains";
 import { toolDefinitionRoutes } from "./routes/tool-definitions";
+import { repositoryDependencyRoutes } from "./routes/repository-dependencies";
 import { wsRoutes, broadcastToWs } from "./routes/ws";
 import { startEventSubscriber } from "./services/event-subscriber";
 
@@ -53,6 +54,7 @@ const app = new Elysia()
   .use(k8sClusterRoutes(db))
   .use(domainRoutes(db))
   .use(toolDefinitionRoutes(db))
+  .use(repositoryDependencyRoutes(db))
   .use(wsRoutes())
   .listen(3434);
 

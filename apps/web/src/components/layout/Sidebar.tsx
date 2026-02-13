@@ -9,6 +9,7 @@ import {
   Server,
   Box,
   Globe,
+  Network,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { useAuth } from "../../hooks/useAuth";
@@ -18,6 +19,7 @@ const NAV_ITEMS = [
   { to: "/board", label: "Board", icon: LayoutDashboard },
   { to: "/runs", label: "Agent Runs", icon: Play },
   { to: "/repos", label: "Repositories", icon: GitBranch },
+  { to: "/repos/dependencies", label: "Dependencies", icon: Network },
   { to: "/connectors", label: "Connectors", icon: Plug },
   { to: "/clusters", label: "K8s Clusters", icon: Server },
   { to: "/sandboxes", label: "Sandboxes", icon: Box },

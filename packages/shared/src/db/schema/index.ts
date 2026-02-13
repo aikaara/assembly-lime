@@ -16,3 +16,4 @@ export * from "./preview-deployments";
 export * from "./k8s";
 export * from "./repository-configs";
 export * from "./tool-definitions";
+export * from "./repo-dependencies";
