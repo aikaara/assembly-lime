@@ -6,6 +6,7 @@
   "scripts": {
     "dev": ". $NVM_DIR/nvm.sh && nvm exec 24 npx vite",
     "build": ". $NVM_DIR/nvm.sh && nvm exec 24 npx tsc -b && nvm exec 24 npx vite build",
+    "build:prod": "npx vite build --mode production",
     "lint": "eslint .",
     "preview": ". $NVM_DIR/nvm.sh && nvm exec 24 npx vite preview"
   },

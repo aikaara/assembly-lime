@@ -26,19 +26,7 @@ import { wsRoutes, broadcastToWs } from "./routes/ws";
 import { startEventSubscriber } from "./services/event-subscriber";
 import { scanAllDependencies } from "./services/dependency-scanner.service";
 
-// Connect Redis clients (guard: BullMQ may have already connected the shared instance)
-if (redis.status === "wait") await redis.connect();
-if (redisSub.status === "wait") await redisSub.connect();
-
-// Start event subscriber (Redis pub/sub → persist → WS broadcast)
-await startEventSubscriber(db, broadcastToWs);
-
-// Dependency scan worker (runs in-process)
-startDepScanWorker(async (tenantId, jobLog, updateProgress) => {
-  await scanAllDependencies(db, tenantId, jobLog, updateProgress);
-});
-
-// BullMQ Dashboard
+// BullMQ Dashboard (lazy — no active Redis connection needed yet)
 const bullBoardAdapter = new ElysiaAdapter("/bull-board");
 createBullBoard({
   queues: [
@@ -48,6 +36,9 @@ createBullBoard({
   ],
   serverAdapter: bullBoardAdapter,
 });
+
+// ── Start HTTP server FIRST so health checks pass immediately ────────
+const port = Number(process.env.PORT) || 3434;
 
 const app = new Elysia()
   .onRequest(({ request }) => {
@@ -80,9 +71,22 @@ const app = new Elysia()
   .use(envVarRoutes(db))
   .use(await bullBoardAdapter.registerPlugin())
   .use(wsRoutes())
-  .listen(3434);
+  .listen({ port, hostname: "0.0.0.0" });
 
 logger.info(
   { host: app.server?.hostname, port: app.server?.port },
   "API server started"
 );
+
+// ── Initialize background services AFTER server is listening ─────────
+try {
+  if (redis.status === "wait") await redis.connect();
+  if (redisSub.status === "wait") await redisSub.connect();
+  await startEventSubscriber(db, broadcastToWs);
+  startDepScanWorker(async (tenantId, jobLog, updateProgress) => {
+    await scanAllDependencies(db, tenantId, jobLog, updateProgress);
+  });
+  logger.info("background services initialized");
+} catch (err) {
+  logger.error({ err }, "failed to initialize background services — server is up but queues/pubsub unavailable");
+}
