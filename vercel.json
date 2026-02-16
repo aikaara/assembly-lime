@@ -1,0 +1,10 @@
+{
+  "buildCommand": "cd apps/web && npx tsc -b && npx vite build",
+  "outputDirectory": "apps/web/dist",
+  "installCommand": "bun install",
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://your-api-server.com/:path*" },
+    { "source": "/ws", "destination": "wss://your-api-server.com/ws" }
+  ]
+}
