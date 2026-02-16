@@ -12,6 +12,7 @@ import { resolveInstructionLayers } from "./instruction-resolver";
 import { getQueueForProvider } from "../lib/bullmq";
 import { getClusterClient } from "./k8s-cluster.service";
 import { getConnector, getConnectorToken } from "./connector.service";
+import { getDecryptedEnvVars } from "./env-var.service";
 import { tenantNamespace, ensureGitCredentialSecret } from "./namespace-provisioner.service";
 import { launchAgentK8sJob } from "./k8s-job-launcher.service";
 import { logger } from "../lib/logger";
@@ -39,6 +40,7 @@ type CreateRunInput = {
     maxCostCents?: number;
     allowedTools?: string[];
   };
+  envVarSetId?: number;
   images?: ImageAttachment[];
 };
 
@@ -104,7 +106,50 @@ export async function createAgentRun(db: Db, input: CreateRunInput) {
     images: input.images,
   };
 
-  // 5. Dispatch: K8s Job (if clusterId + repo) or BullMQ (default)
+  // Enrich repo auth token for Daytona before dispatching (if needed)
+  if (payload.repo && process.env.SANDBOX_PROVIDER?.toLowerCase() === "daytona") {
+    try {
+      if (input.repo?.connectorId) {
+        const connector = await getConnector(db, input.tenantId, input.repo.connectorId);
+        if (connector) {
+          payload.repo.authToken = getConnectorToken(connector);
+        }
+      }
+    } catch {}
+  }
+
+  // 5. Dispatch: Daytona (if SANDBOX_PROVIDER=daytona) → K8s → BullMQ
+  const sandboxProvider = process.env.SANDBOX_PROVIDER?.toLowerCase();
+
+  // Daytona path: always BullMQ, worker creates the sandbox
+  if (sandboxProvider === "daytona" && payload.repo) {
+    payload.sandbox = { provider: "daytona" };
+    // Decrypt env vars if an env var set is specified
+    if (input.envVarSetId) {
+      try {
+        const decrypted = await getDecryptedEnvVars(db, input.tenantId, input.envVarSetId);
+        // Filter out empty placeholder values
+        const filtered: Record<string, string> = {};
+        for (const [k, v] of Object.entries(decrypted)) {
+          if (v) filtered[k] = v;
+        }
+        if (Object.keys(filtered).length > 0) {
+          payload.sandbox.envVars = filtered;
+        }
+      } catch (e) {
+        logger.warn({ err: e, envVarSetId: input.envVarSetId }, "failed to decrypt env vars for Daytona run");
+      }
+    }
+    const queue = getQueueForProvider(input.provider);
+    await queue.add(`run-${run.id}`, payload, { jobId: `run-${run.id}` });
+    logger.info(
+      { runId: run.id, provider: input.provider, mode: input.mode, sandbox: "daytona" },
+      "agent run enqueued via BullMQ (Daytona)",
+    );
+    return run;
+  }
+
+  // K8s path
   if (input.clusterId && input.repo?.connectorId && input.repo?.owner && input.repo?.name) {
     // K8s path: decrypt connector token, ensure git credential secret, launch Job
     const [tenant] = await db

@@ -7,6 +7,7 @@ import { requireAuth } from "../middleware/auth";
 import { browseFileTree, getFileContent, listOrgRepos, importRepos } from "../services/github.service";
 import { getConnectorToken } from "../services/connector.service";
 import { scanRepoForConfigs, listRepoConfigs } from "../services/env-detection.service";
+import { autoCreateFromDetectedKeys } from "../services/env-var.service";
 import { depScanQueue } from "../lib/bullmq";
 import { ensureFork, getForkStatus } from "../services/fork.service";
 import { encryptToken } from "../lib/encryption";
@@ -148,6 +149,12 @@ export function repositoryRoutes(db: Db) {
         if (!repo) return { error: "not found" };
         log.info({ tenantId: auth!.tenantId, repositoryId: params.id }, "triggering config scan");
         const configs = await scanRepoForConfigs(db, auth!.tenantId, repo.connectorId, repo.id);
+        // Auto-create env var set from detected keys (per project scope)
+        const allKeys = configs.flatMap((c) => c.detectedKeys);
+        if (allKeys.length > 0) {
+          const repoName = repo.name ?? `repo-${repo.id}`;
+          await autoCreateFromDetectedKeys(db, auth!.tenantId, "project", repo.id, repoName, allKeys);
+        }
         return configs.map((c) => ({
           filePath: c.filePath,
           fileType: c.fileType,

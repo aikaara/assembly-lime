@@ -19,6 +19,7 @@
     "drizzle-orm": "^0.45.1"
   },
   "dependencies": {
+    "@daytonaio/sdk": "^0.143.0",
     "postgres": "^3.4.8"
   }
 }

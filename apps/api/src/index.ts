@@ -21,6 +21,7 @@ import { k8sClusterRoutes } from "./routes/k8s-clusters";
 import { domainRoutes } from "./routes/domains";
 import { toolDefinitionRoutes } from "./routes/tool-definitions";
 import { repositoryDependencyRoutes } from "./routes/repository-dependencies";
+import { envVarRoutes } from "./routes/env-vars";
 import { wsRoutes, broadcastToWs } from "./routes/ws";
 import { startEventSubscriber } from "./services/event-subscriber";
 import { scanAllDependencies } from "./services/dependency-scanner.service";
@@ -76,6 +77,7 @@ const app = new Elysia()
   .use(domainRoutes(db))
   .use(toolDefinitionRoutes(db))
   .use(repositoryDependencyRoutes(db))
+  .use(envVarRoutes(db))
   .use(await bullBoardAdapter.registerPlugin())
   .use(wsRoutes())
   .listen(3434);

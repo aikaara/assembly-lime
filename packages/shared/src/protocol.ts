@@ -63,6 +63,8 @@ export type AgentJobPayload = {
     defaultBranch: string;
     ref?: string;
     allowedPaths?: string[];
+    // Optional authentication for provider sandboxes (e.g., Daytona)
+    authToken?: string;
   };
   repos?: Array<{
     repositoryId: number;
@@ -74,6 +76,10 @@ export type AgentJobPayload = {
     timeBudgetSec?: number;
     maxCostCents?: number;
     allowedTools?: string[];
+  };
+  sandbox?: {
+    provider: "daytona" | "k8s";
+    envVars?: Record<string, string>;
   };
   k8s?: {
     clusterId: number;

@@ -7,6 +7,7 @@ import { tenantNamespace, ensureGitCredentialSecret } from "./namespace-provisio
 import { decryptToken } from "../lib/encryption";
 import { PREVIEW_DOMAIN, PREVIEW_INGRESS_CLASS } from "../lib/k8s";
 import { childLogger } from "../lib/logger";
+import { Daytona } from "@daytonaio/sdk";
 
 const log = childLogger({ module: "sandbox-service" });
 
@@ -390,10 +391,38 @@ function buildMiseInstalls(runtimes: DetectedRuntime[]): string {
     .join(" && ");
 }
 
+/**
+ * Read .env files from GitHub in priority order and return PORT if found.
+ * Note: .env is usually gitignored, so we check .env.example, .env.sample, etc.
+ * Priority: .env > .env.local > .env.development > .env.example > .env.sample > .env.template
+ */
+async function detectPortFromGitHub(
+  token: string, owner: string, repoName: string, branch: string,
+): Promise<{ port: number; source: string } | null> {
+  const envFiles = [
+    { file: ".env",              source: ".env" },
+    { file: ".env.local",        source: ".env.local" },
+    { file: ".env.development",  source: ".env.development" },
+    { file: ".env.example",      source: ".env.example" },
+    { file: ".env.sample",       source: ".env.sample" },
+    { file: ".env.template",     source: ".env.template" },
+  ];
+  for (const { file, source } of envFiles) {
+    const content = await githubFileContent(token, owner, repoName, file, branch);
+    if (!content) continue;
+    const match = content.match(/^PORT\s*=\s*["']?(\d{2,5})["']?/m);
+    if (match?.[1]) return { port: parseInt(match[1], 10), source };
+  }
+  return null;
+}
+
 /** Detect start command and port for the primary language. */
 async function detectStartConfig(
   token: string, owner: string, repoName: string, branch: string, primaryLang: string
 ): Promise<{ startCommand: string; port: number; portSource: string; startScript: string | null }> {
+
+  // Read .env files from GitHub for PORT override (applies to all languages)
+  const envPort = await detectPortFromGitHub(token, owner, repoName, branch);
 
   if (primaryLang === "node") {
     const pkgJson = await githubFileContent(token, owner, repoName, "package.json", branch);
@@ -421,11 +450,15 @@ async function detectStartConfig(
           if (portMatch?.[1]) { port = parseInt(portMatch[1], 10); portSource = `scripts.${startScript}`; }
         }
 
+        // Override: .env files have highest priority
+        if (envPort) { port = envPort.port; portSource = envPort.source; }
+
         const cmd = startScript ? `npm run ${startScript}` : pkg.main ? `node ${pkg.main}` : "node .";
         return { startCommand: `npm install && ${cmd}`, port, portSource, startScript };
       } catch { /* fall through */ }
     }
-    return { startCommand: "npm install && npm start", port: 3000, portSource: "Node.js default", startScript: "start" };
+    const port = envPort?.port ?? 3000;
+    return { startCommand: "npm install && npm start", port, portSource: envPort?.source ?? "Node.js default", startScript: "start" };
   }
 
   if (primaryLang === "ruby") {
@@ -433,28 +466,31 @@ async function detectStartConfig(
     const isRails = gemfile?.includes("rails") ?? false;
     const hasPuma = gemfile?.includes("puma") ?? false;
     if (isRails) {
+      const port = envPort?.port ?? 3000;
       return {
-        startCommand: "bundle install && bundle exec rails s -b 0.0.0.0 -p 3000",
-        port: 3000, portSource: "Rails default", startScript: "rails server",
+        startCommand: `bundle install && bundle exec rails s -b 0.0.0.0 -p ${port}`,
+        port, portSource: envPort?.source ?? "Rails default", startScript: "rails server",
       };
     }
     if (hasPuma) {
+      const port = envPort?.port ?? 9292;
       return {
-        startCommand: "bundle install && bundle exec puma -b tcp://0.0.0.0:9292",
-        port: 9292, portSource: "Puma default", startScript: "puma",
+        startCommand: `bundle install && bundle exec puma -b tcp://0.0.0.0:${port}`,
+        port, portSource: envPort?.source ?? "Puma default", startScript: "puma",
       };
     }
-    // Check for Rakefile, config.ru
     const configRu = await githubFileContent(token, owner, repoName, "config.ru", branch);
     if (configRu) {
+      const port = envPort?.port ?? 9292;
       return {
-        startCommand: "bundle install && bundle exec rackup -o 0.0.0.0 -p 9292",
-        port: 9292, portSource: "Rack default", startScript: "rackup",
+        startCommand: `bundle install && bundle exec rackup -o 0.0.0.0 -p ${port}`,
+        port, portSource: envPort?.source ?? "Rack default", startScript: "rackup",
       };
     }
+    const port = envPort?.port ?? 4567;
     return {
       startCommand: "bundle install && bundle exec ruby app.rb || bundle exec ruby main.rb",
-      port: 4567, portSource: "Sinatra default", startScript: null,
+      port, portSource: envPort?.source ?? "Sinatra default", startScript: null,
     };
   }
 
@@ -464,48 +500,54 @@ async function detectStartConfig(
     const isFlask = reqs?.toLowerCase().includes("flask") ?? false;
     const isFastapi = reqs?.toLowerCase().includes("fastapi") ?? false;
     if (isDjango) {
+      const port = envPort?.port ?? 8000;
       return {
-        startCommand: "pip install -r requirements.txt && python manage.py runserver 0.0.0.0:8000",
-        port: 8000, portSource: "Django default", startScript: "manage.py runserver",
+        startCommand: `pip install -r requirements.txt && python manage.py runserver 0.0.0.0:${port}`,
+        port, portSource: envPort?.source ?? "Django default", startScript: "manage.py runserver",
       };
     }
     if (isFastapi) {
+      const port = envPort?.port ?? 8000;
       return {
-        startCommand: "pip install -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8000",
-        port: 8000, portSource: "FastAPI default", startScript: "uvicorn",
+        startCommand: `pip install -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port ${port}`,
+        port, portSource: envPort?.source ?? "FastAPI default", startScript: "uvicorn",
       };
     }
     if (isFlask) {
+      const port = envPort?.port ?? 5000;
       return {
-        startCommand: "pip install -r requirements.txt && python -m flask run --host=0.0.0.0 --port=5000",
-        port: 5000, portSource: "Flask default", startScript: "flask run",
+        startCommand: `pip install -r requirements.txt && python -m flask run --host=0.0.0.0 --port=${port}`,
+        port, portSource: envPort?.source ?? "Flask default", startScript: "flask run",
       };
     }
+    const port = envPort?.port ?? 5000;
     return {
       startCommand: "pip install -r requirements.txt && python app.py || python main.py || python server.py",
-      port: 5000, portSource: "Python default", startScript: null,
+      port, portSource: envPort?.source ?? "Python default", startScript: null,
     };
   }
 
   if (primaryLang === "go") {
-    return { startCommand: "go run .", port: 8080, portSource: "Go default", startScript: null };
+    const port = envPort?.port ?? 8080;
+    return { startCommand: "go run .", port, portSource: envPort?.source ?? "Go default", startScript: null };
   }
 
   if (primaryLang === "rust") {
-    return { startCommand: "cargo run --release", port: 8080, portSource: "Rust default", startScript: null };
+    const port = envPort?.port ?? 8080;
+    return { startCommand: "cargo run --release", port, portSource: envPort?.source ?? "Rust default", startScript: null };
   }
 
   if (primaryLang === "java") {
-    // Check for Maven vs Gradle
     const pomXml = await githubFileContent(token, owner, repoName, "pom.xml", branch);
     if (pomXml) {
       const isSpringBoot = pomXml.includes("spring-boot");
+      const port = envPort?.port ?? 8080;
       return {
         startCommand: isSpringBoot
-          ? "./mvnw spring-boot:run -Dserver.port=8080 || mvn spring-boot:run -Dserver.port=8080"
+          ? `./mvnw spring-boot:run -Dserver.port=${port} || mvn spring-boot:run -Dserver.port=${port}`
           : "./mvnw package -DskipTests && java -jar target/*.jar || mvn package -DskipTests && java -jar target/*.jar",
-        port: 8080,
-        portSource: isSpringBoot ? "Spring Boot default" : "Java default",
+        port,
+        portSource: envPort?.source ?? (isSpringBoot ? "Spring Boot default" : "Java default"),
         startScript: isSpringBoot ? "spring-boot:run" : "mvn package",
       };
     }
@@ -513,60 +555,64 @@ async function detectStartConfig(
       ?? await githubFileContent(token, owner, repoName, "build.gradle.kts", branch);
     if (buildGradle) {
       const isSpringBoot = buildGradle.includes("spring-boot") || buildGradle.includes("org.springframework.boot");
+      const port = envPort?.port ?? 8080;
       return {
         startCommand: isSpringBoot
-          ? "./gradlew bootRun --args='--server.port=8080' || gradle bootRun --args='--server.port=8080'"
+          ? `./gradlew bootRun --args='--server.port=${port}' || gradle bootRun --args='--server.port=${port}'`
           : "./gradlew run || gradle run",
-        port: 8080,
-        portSource: isSpringBoot ? "Spring Boot default" : "Java default",
+        port,
+        portSource: envPort?.source ?? (isSpringBoot ? "Spring Boot default" : "Java default"),
         startScript: isSpringBoot ? "bootRun" : "gradle run",
       };
     }
-    return { startCommand: "javac *.java && java Main", port: 8080, portSource: "Java default", startScript: null };
+    const port = envPort?.port ?? 8080;
+    return { startCommand: "javac *.java && java Main", port, portSource: envPort?.source ?? "Java default", startScript: null };
   }
 
   if (primaryLang === "php") {
     const composerJson = await githubFileContent(token, owner, repoName, "composer.json", branch);
     const isLaravel = composerJson?.includes("laravel/framework") ?? false;
     const isSymfony = composerJson?.includes("symfony/framework-bundle") ?? false;
+    const port = envPort?.port ?? 8000;
     if (isLaravel) {
       return {
-        startCommand: "composer install --no-interaction && php artisan serve --host=0.0.0.0 --port=8000",
-        port: 8000, portSource: "Laravel default", startScript: "artisan serve",
+        startCommand: `composer install --no-interaction && php artisan serve --host=0.0.0.0 --port=${port}`,
+        port, portSource: envPort?.source ?? "Laravel default", startScript: "artisan serve",
       };
     }
     if (isSymfony) {
       return {
-        startCommand: "composer install --no-interaction && php -S 0.0.0.0:8000 -t public/",
-        port: 8000, portSource: "Symfony default", startScript: "php built-in server",
+        startCommand: `composer install --no-interaction && php -S 0.0.0.0:${port} -t public/`,
+        port, portSource: envPort?.source ?? "Symfony default", startScript: "php built-in server",
       };
     }
-    // Check for index.php
     return {
-      startCommand: "composer install --no-interaction 2>/dev/null; php -S 0.0.0.0:8000",
-      port: 8000, portSource: "PHP default", startScript: "php built-in server",
+      startCommand: `composer install --no-interaction 2>/dev/null; php -S 0.0.0.0:${port}`,
+      port, portSource: envPort?.source ?? "PHP default", startScript: "php built-in server",
     };
   }
 
   if (primaryLang === "elixir") {
     const mixExs = await githubFileContent(token, owner, repoName, "mix.exs", branch);
     const isPhoenix = mixExs?.includes(":phoenix") ?? false;
+    const port = envPort?.port ?? 4000;
     if (isPhoenix) {
       return {
         startCommand: "mix deps.get && mix phx.server",
-        port: 4000, portSource: "Phoenix default", startScript: "phx.server",
+        port, portSource: envPort?.source ?? "Phoenix default", startScript: "phx.server",
       };
     }
     return {
       startCommand: "mix deps.get && mix run --no-halt",
-      port: 4000, portSource: "Elixir default", startScript: "mix run",
+      port, portSource: envPort?.source ?? "Elixir default", startScript: "mix run",
     };
   }
 
   if (primaryLang === "dotnet") {
+    const port = envPort?.port ?? 5000;
     return {
-      startCommand: "dotnet restore && dotnet run --urls http://0.0.0.0:5000",
-      port: 5000, portSource: ".NET default", startScript: "dotnet run",
+      startCommand: `dotnet restore && dotnet run --urls http://0.0.0.0:${port}`,
+      port, portSource: envPort?.source ?? ".NET default", startScript: "dotnet run",
     };
   }
 
@@ -574,40 +620,46 @@ async function detectStartConfig(
     const buildSbt = await githubFileContent(token, owner, repoName, "build.sbt", branch);
     const isPlayFramework = buildSbt?.includes("PlayScala") ?? false;
     if (isPlayFramework) {
+      const port = envPort?.port ?? 9000;
       return {
         startCommand: "sbt run",
-        port: 9000, portSource: "Play Framework default", startScript: "sbt run",
+        port, portSource: envPort?.source ?? "Play Framework default", startScript: "sbt run",
       };
     }
+    const port = envPort?.port ?? 8080;
     return {
       startCommand: "sbt run",
-      port: 8080, portSource: "Scala default", startScript: "sbt run",
+      port, portSource: envPort?.source ?? "Scala default", startScript: "sbt run",
     };
   }
 
   if (primaryLang === "swift") {
+    const port = envPort?.port ?? 8080;
     return {
       startCommand: "swift build && swift run",
-      port: 8080, portSource: "Swift default", startScript: "swift run",
+      port, portSource: envPort?.source ?? "Swift default", startScript: "swift run",
     };
   }
 
   if (primaryLang === "zig") {
+    const port = envPort?.port ?? 8080;
     return {
       startCommand: "zig build run",
-      port: 8080, portSource: "Zig default", startScript: "zig build run",
+      port, portSource: envPort?.source ?? "Zig default", startScript: "zig build run",
     };
   }
 
   if (primaryLang === "dart" || primaryLang === "flutter") {
+    const port = envPort?.port ?? 8080;
     return {
       startCommand: "dart pub get && dart run",
-      port: 8080, portSource: "Dart default", startScript: "dart run",
+      port, portSource: envPort?.source ?? "Dart default", startScript: "dart run",
     };
   }
 
-  // Universal fallback: keep the container alive for manual inspection
-  return { startCommand: "sleep infinity", port: 3000, portSource: "fallback", startScript: null };
+  // Universal fallback
+  const port = envPort?.port ?? 3000;
+  return { startCommand: "sleep infinity", port, portSource: envPort?.source ?? "fallback", startScript: null };
 }
 
 /**
@@ -621,19 +673,9 @@ async function detectSandboxConfig(token: string, owner: string, repoName: strin
   log.info({ runtimes }, "detected runtimes");
 
   // 2. Detect start command and port for the primary language
+  // (detectStartConfig already checks .env files from GitHub for PORT override)
   const startConfig = await detectStartConfig(token, owner, repoName, branch, primary.language);
-
-  // Also check .env files for PORT override
-  let { port, portSource } = startConfig;
-  const envExample = await githubFileContent(token, owner, repoName, ".env.example", branch)
-    ?? await githubFileContent(token, owner, repoName, ".env.sample", branch);
-  if (envExample) {
-    const envPortMatch = envExample.match(/^PORT\s*=\s*(\d{3,5})/m);
-    if (envPortMatch?.[1]) {
-      port = parseInt(envPortMatch[1], 10);
-      portSource = ".env";
-    }
-  }
+  const { port, portSource } = startConfig;
 
   // 3. Build the full command: system setup → language-specific deps → mise install → start
   const miseInstalls = buildMiseInstalls(runtimes);
@@ -666,7 +708,7 @@ async function detectSandboxConfig(token: string, owner: string, repoName: strin
 // CRUD
 // ---------------------------------------------------------------------------
 
-type CreateSandboxInput = {
+export type CreateSandboxInput = {
   repositoryId: number;
   branch: string;
   clusterId: number;
@@ -674,8 +716,8 @@ type CreateSandboxInput = {
   envVarSetId?: number;
   createdBy?: number;
 };
-
-export async function createSandbox(db: Db, tenantId: number, input: CreateSandboxInput) {
+// K8s implementation (internal)
+async function k8sCreateSandbox(db: Db, tenantId: number, input: CreateSandboxInput) {
   const [repo] = await db
     .select()
     .from(repositories)
@@ -882,7 +924,8 @@ export async function createSandbox(db: Db, tenantId: number, input: CreateSandb
   return row!;
 }
 
-export async function getSandbox(db: Db, tenantId: number, sandboxId: number) {
+// K8s implementation (internal)
+async function k8sGetSandbox(db: Db, tenantId: number, sandboxId: number) {
   const [row] = await db
     .select()
     .from(sandboxes)
@@ -912,14 +955,16 @@ export async function getSandbox(db: Db, tenantId: number, sandboxId: number) {
   }
 }
 
-export async function listSandboxes(db: Db, tenantId: number) {
+// K8s implementation (internal)
+async function k8sListSandboxes(db: Db, tenantId: number) {
   return db
     .select()
     .from(sandboxes)
     .where(eq(sandboxes.tenantId, tenantId));
 }
 
-export async function destroySandbox(db: Db, tenantId: number, sandboxId: number) {
+// K8s implementation (internal)
+async function k8sDestroySandbox(db: Db, tenantId: number, sandboxId: number) {
   const [row] = await db
     .select()
     .from(sandboxes)
@@ -963,7 +1008,8 @@ export async function destroySandbox(db: Db, tenantId: number, sandboxId: number
   return updated;
 }
 
-export async function getSandboxLogs(db: Db, tenantId: number, sandboxId: number) {
+// K8s implementation (internal)
+async function k8sGetSandboxLogs(db: Db, tenantId: number, sandboxId: number) {
   const [row] = await db
     .select()
     .from(sandboxes)
@@ -1046,4 +1092,232 @@ export async function getSandboxLogs(db: Db, tenantId: number, sandboxId: number
     log.error({ err: k8sErrorBody(err), sandboxId }, "failed to get sandbox logs");
     return `[Error: ${k8sErrorBody(err)}]`;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Provider abstraction
+// ---------------------------------------------------------------------------
+
+export interface ISandboxProvider {
+  createSandbox(db: Db, tenantId: number, input: CreateSandboxInput): Promise<any>;
+  getSandbox(db: Db, tenantId: number, sandboxId: number): Promise<any | null>;
+  listSandboxes(db: Db, tenantId: number): Promise<any[]>;
+  destroySandbox(db: Db, tenantId: number, sandboxId: number): Promise<any | null>;
+  getSandboxLogs(db: Db, tenantId: number, sandboxId: number): Promise<string | null>;
+}
+
+class K8sSandboxProvider implements ISandboxProvider {
+  createSandbox(db: Db, tenantId: number, input: CreateSandboxInput) {
+    return k8sCreateSandbox(db, tenantId, input);
+  }
+  getSandbox(db: Db, tenantId: number, sandboxId: number) {
+    return k8sGetSandbox(db, tenantId, sandboxId);
+  }
+  listSandboxes(db: Db, tenantId: number) {
+    return k8sListSandboxes(db, tenantId);
+  }
+  destroySandbox(db: Db, tenantId: number, sandboxId: number) {
+    return k8sDestroySandbox(db, tenantId, sandboxId);
+  }
+  getSandboxLogs(db: Db, tenantId: number, sandboxId: number) {
+    return k8sGetSandboxLogs(db, tenantId, sandboxId);
+  }
+}
+
+// Placeholder for future Daytona provider integration
+class DaytonaSandboxProvider implements ISandboxProvider {
+  async createSandbox(db: Db, tenantId: number, input: CreateSandboxInput): Promise<any> {
+    // Look up repo + connector (GitHub token) to authenticate git operations
+    const [repo] = await db
+      .select()
+      .from(repositories)
+      .where(and(eq(repositories.id, input.repositoryId), eq(repositories.tenantId, tenantId)));
+    if (!repo) throw new Error("Repository not found");
+
+    const [connector] = await db
+      .select()
+      .from(connectors)
+      .where(and(eq(connectors.id, repo.connectorId), eq(connectors.tenantId, tenantId)));
+    if (!connector) throw new Error("Connector not found for repository");
+
+    const gitToken = decryptToken(connector.accessTokenEnc);
+
+    // Detect runtime/port from repo (cached if available)
+    let config = await loadCachedConfig(db, tenantId, input.repositoryId);
+    if (!config) {
+      log.info({ repo: repo.fullName, branch: input.branch }, "detecting sandbox config from repo (daytona)");
+      config = await detectSandboxConfig(gitToken, repo.owner, repo.name, input.branch);
+      await saveSandboxConfig(db, tenantId, input.repositoryId, config);
+    }
+
+    // Create Daytona sandbox (uses DAYTONA_* env or explicit config)
+    const daytona = new Daytona();
+    const labels = {
+      "assembly-lime/tenantId": String(tenantId),
+      "assembly-lime/repositoryId": String(input.repositoryId),
+      "assembly-lime/branch": input.branch,
+    } as Record<string, string>;
+
+    // Map detected language to Daytona SDK language
+    const langMap: Record<string, string> = {
+      node: "typescript", python: "python", ruby: "ruby", go: "go",
+      rust: "rust", java: "java", php: "php", dotnet: "dotnet",
+    };
+    const detectedLang = config.detectedFrom?.split(/[@(]/)[0]?.trim() ?? "node";
+    const sdkLang = langMap[detectedLang] ?? "typescript";
+
+    const sb = await daytona.create({
+      language: sdkLang,
+      public: false, // private — use signed URLs for preview access
+      labels,
+      autoStopInterval: 60,
+    });
+
+    // Clone repo into the sandbox's working directory
+    try {
+      const cloneUrl = `https://github.com/${repo.owner}/${repo.name}.git`;
+      await sb.git.clone(cloneUrl, repo.name, input.branch, undefined, "x-access-token", gitToken);
+      log.info({ sandboxId: sb.id, repo: repo.fullName }, "daytona: repo cloned");
+    } catch (err) {
+      log.error({ err, repo: repo.fullName }, "daytona: git clone failed");
+    }
+
+    // Generate a signed preview URL (1 hour TTL) for private sandbox access
+    let sandboxUrl: string | null = null;
+    try {
+      const signed = await sb.getSignedPreviewUrl(config.port, 3600);
+      sandboxUrl = signed?.url ?? null;
+    } catch {
+      sandboxUrl = null;
+    }
+
+    // Persist a row representing this sandbox run. We reuse existing fields;
+    // provider metadata is implicit (k8sNamespace="daytona").
+    const [row] = await db
+      .insert(sandboxes)
+      .values({
+        tenantId,
+        clusterId: null,
+        repositoryId: input.repositoryId,
+        branch: input.branch,
+        k8sNamespace: "daytona",
+        k8sPod: sb.id, // store Daytona sandbox ID
+        k8sService: null,
+        k8sIngress: null,
+        sandboxUrl,
+        status: "creating",
+        portsJson: [{ containerPort: config.port, source: config.portSource, provider: "daytona" }],
+        envVarSetId: input.envVarSetId,
+        createdBy: input.createdBy,
+      })
+      .returning();
+
+    log.info({ sandboxId: row!.id, provider: "daytona", daytonaId: sb.id }, "sandbox created (daytona)");
+    return row!;
+  }
+
+  async getSandbox(db: Db, tenantId: number, sandboxId: number): Promise<any | null> {
+    const [row] = await db
+      .select()
+      .from(sandboxes)
+      .where(and(eq(sandboxes.id, sandboxId), eq(sandboxes.tenantId, tenantId)));
+    if (!row) return null;
+    if (row.k8sNamespace !== "daytona" || !row.k8sPod) return row;
+    try {
+      const daytona = new Daytona();
+      const sb = await daytona.get(row.k8sPod);
+      // Map Daytona state to our status
+      const state = (sb.state ?? "").toString().toLowerCase();
+      const map: Record<string, string> = {
+        started: "running",
+        starting: "creating",
+        stopped: "stopped",
+        error: "error",
+        destroying: "destroying",
+        destroyed: "destroyed",
+      };
+      const newStatus = map[state] ?? row.status;
+      if (newStatus !== row.status) {
+        const [updated] = await db
+          .update(sandboxes)
+          .set({ status: newStatus })
+          .where(eq(sandboxes.id, sandboxId))
+          .returning();
+        return updated!;
+      }
+    } catch (err) {
+      log.warn({ err, sandboxId }, "daytona: get sandbox failed; returning cached row");
+    }
+    return row;
+  }
+
+  async listSandboxes(db: Db, tenantId: number): Promise<any[]> {
+    return db
+      .select()
+      .from(sandboxes)
+      .where(eq(sandboxes.tenantId, tenantId));
+  }
+
+  async destroySandbox(db: Db, tenantId: number, sandboxId: number): Promise<any | null> {
+    const [row] = await db
+      .select()
+      .from(sandboxes)
+      .where(and(eq(sandboxes.id, sandboxId), eq(sandboxes.tenantId, tenantId)));
+    if (!row) return null;
+
+    if (row.k8sNamespace === "daytona" && row.k8sPod) {
+      try {
+        const daytona = new Daytona();
+        const sb = await daytona.get(row.k8sPod);
+        await sb.delete(60);
+      } catch (err) {
+        log.warn({ err, sandboxId }, "daytona: delete failed (continuing to mark destroyed)");
+      }
+    }
+
+    const [updated] = await db
+      .update(sandboxes)
+      .set({ status: "destroyed", destroyedAt: new Date() })
+      .where(eq(sandboxes.id, sandboxId))
+      .returning();
+    return updated;
+  }
+
+  async getSandboxLogs(db: Db, tenantId: number, sandboxId: number): Promise<string | null> {
+    const [row] = await db
+      .select()
+      .from(sandboxes)
+      .where(and(eq(sandboxes.id, sandboxId), eq(sandboxes.tenantId, tenantId)));
+    if (!row) return null;
+    if (row.k8sNamespace !== "daytona") return null;
+    // TODO: Integrate Daytona session logs or process logs as needed
+    return "[Daytona provider] Use Run details or start commands to view output.";
+  }
+}
+
+function getSandboxProvider(): ISandboxProvider {
+  const provider = process.env.SANDBOX_PROVIDER?.toLowerCase();
+  if (provider === "daytona") return new DaytonaSandboxProvider();
+  return new K8sSandboxProvider();
+}
+
+// Public API — delegates to selected provider
+export async function createSandbox(db: Db, tenantId: number, input: CreateSandboxInput) {
+  return getSandboxProvider().createSandbox(db, tenantId, input);
+}
+
+export async function getSandbox(db: Db, tenantId: number, sandboxId: number) {
+  return getSandboxProvider().getSandbox(db, tenantId, sandboxId);
+}
+
+export async function listSandboxes(db: Db, tenantId: number) {
+  return getSandboxProvider().listSandboxes(db, tenantId);
+}
+
+export async function destroySandbox(db: Db, tenantId: number, sandboxId: number) {
+  return getSandboxProvider().destroySandbox(db, tenantId, sandboxId);
+}
+
+export async function getSandboxLogs(db: Db, tenantId: number, sandboxId: number) {
+  return getSandboxProvider().getSandboxLogs(db, tenantId, sandboxId);
 }

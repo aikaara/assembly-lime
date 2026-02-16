@@ -1,6 +1,7 @@
 import { Worker } from "bullmq";
 import {
   QUEUE_AGENT_RUNS_CLAUDE,
+  DaytonaWorkspace,
   type AgentJobPayload,
 } from "@assembly-lime/shared";
 import { redis, createPublisher } from "./lib/redis";
@@ -9,6 +10,7 @@ import { AgentEventEmitter } from "./agent/event-emitter";
 import { runClaudeAgent } from "./agent/claude-runner";
 import { runClaudeAgentMultiRepo } from "./agent/multi-repo-runner";
 import { runWorkspaceAgent } from "./agent/workspace-runner";
+import { runDaytonaWorkspaceAgent } from "./agent/daytona-workspace-runner";
 import { launchK8sJob } from "./k8s/job-launcher";
 
 const USE_K8S_SANDBOX = process.env.USE_K8S_SANDBOX === "true";
@@ -47,6 +49,35 @@ const worker = new Worker<AgentJobPayload>(
     const payload = job.data;
     const log = logger.child({ runId: payload.runId, jobId: job.id });
     log.info("processing claude agent job");
+
+    // Daytona workspace path
+    if (payload.sandbox?.provider === "daytona" && payload.repo) {
+      log.info("using Daytona workspace");
+      const workspace = await DaytonaWorkspace.create({
+        runId: payload.runId,
+        provider: payload.provider,
+        mode: payload.mode,
+        repo: payload.repo,
+      });
+      const branchName = `al/${payload.mode}/${payload.runId}`;
+      await workspace.createBranch(branchName);
+
+      // Inject env vars if provided
+      if (payload.sandbox.envVars) {
+        await workspace.injectEnvVars(payload.sandbox.envVars);
+        log.info({ keyCount: Object.keys(payload.sandbox.envVars).length }, "env vars injected into workspace");
+      }
+
+      const pub = createPublisher();
+      await pub.connect();
+      const emitter = new AgentEventEmitter(pub, payload.runId);
+      try {
+        await runDaytonaWorkspaceAgent(payload, emitter, workspace);
+      } finally {
+        await pub.quit();
+      }
+      return;
+    }
 
     if (USE_K8S_SANDBOX) {
       log.info("delegating to K8s sandbox");

@@ -232,6 +232,7 @@ export type Sandbox = {
   clusterId: string | null;
   repositoryId: string;
   branch: string;
+  k8sNamespace: string;
   k8sPod: string;
   k8sService: string | null;
   k8sIngress: string | null;
@@ -240,6 +241,24 @@ export type Sandbox = {
   portsJson: unknown;
   createdAt: string;
   destroyedAt: string | null;
+};
+
+export type EnvVarSet = {
+  id: string;
+  tenantId: string;
+  scopeType: string;
+  scopeId: string;
+  name: string;
+  createdAt: string;
+  vars?: EnvVar[];
+};
+
+export type EnvVar = {
+  id: string;
+  key: string;
+  isSecret: boolean;
+  hasValue: boolean;
+  createdAt: string;
 };
 
 export type Domain = {

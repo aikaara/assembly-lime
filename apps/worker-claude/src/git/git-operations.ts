@@ -1,12 +1,9 @@
 import { logger } from "../lib/logger";
 import { existsSync, writeFileSync, mkdirSync, unlinkSync } from "fs";
 import { dirname, join } from "path";
+import type { FileChange } from "@assembly-lime/shared";
 
-export type FileChange = {
-  path: string;
-  content: string | null; // null = delete
-  action: "create" | "modify" | "delete";
-};
+export type { FileChange };
 
 export type CommitResult = {
   commitSha: string;
