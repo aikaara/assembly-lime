@@ -1,9 +1,8 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKResultSuccess, SDKResultError } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentJobPayload } from "@assembly-lime/shared";
 import type { AgentEventEmitter } from "./event-emitter";
 import { logger } from "../lib/logger";
-
-const anthropic = new Anthropic();
 
 export async function runClaudeAgent(
   payload: AgentJobPayload,
@@ -12,83 +11,60 @@ export async function runClaudeAgent(
   const log = logger.child({ runId: payload.runId });
 
   await emitter.emitStatus("running");
-  log.info("claude agent started");
+  log.info("claude agent started (Agent SDK)");
 
   try {
-    // Build message content parts
-    const contentParts: Anthropic.MessageCreateParams["messages"][0]["content"] = [];
+    // Restrict tools based on agent mode: plan = read-only, others = full
+    const allowedTools: string[] =
+      payload.mode === "plan"
+        ? ["Read", "Glob", "Grep"]
+        : ["Read", "Write", "Edit", "Bash", "Glob", "Grep"];
 
-    // Add images if present
-    if (payload.images && payload.images.length > 0) {
-      for (const img of payload.images) {
-        if (img.presignedUrl) {
-          // Fetch image and send as base64
-          const response = await fetch(img.presignedUrl);
-          const buffer = await response.arrayBuffer();
-          const base64 = Buffer.from(buffer).toString("base64");
-          const mediaType = img.mimeType as
-            | "image/jpeg"
-            | "image/png"
-            | "image/gif"
-            | "image/webp";
-          contentParts.push({
-            type: "image",
-            source: { type: "base64", media_type: mediaType, data: base64 },
-          });
+    for await (const message of query({
+      prompt: payload.inputPrompt,
+      options: {
+        systemPrompt: payload.resolvedPrompt,
+        allowedTools,
+        permissionMode: "bypassPermissions",
+        allowDangerouslySkipPermissions: true,
+        model: "sonnet",
+        maxTurns: 25,
+        executable: "bun",
+        env: {
+          CLAUDE_CODE_USE_BEDROCK: "1",
+          ...(process.env as Record<string, string>),
+        },
+      },
+    })) {
+      if (message.type === "assistant") {
+        for (const block of message.message.content) {
+          if ("text" in block && block.text) {
+            await emitter.emitMessage("assistant", block.text);
+          } else if ("name" in block) {
+            await emitter.emitLog(`tool: ${block.name}`);
+          }
+        }
+      }
+
+      if (message.type === "result") {
+        const result = message as SDKResultSuccess | SDKResultError;
+        if (result.subtype === "success") {
+          await emitter.emitLog(
+            `tokens: input=${result.usage.input_tokens} output=${result.usage.output_tokens} cost=$${result.total_cost_usd.toFixed(4)}`
+          );
+          await emitter.emitStatus(
+            "completed",
+            result.result || "Agent run completed"
+          );
+        } else {
+          const errorMsg = result.errors.join("; ") || `Agent failed: ${result.subtype}`;
+          await emitter.emitError(errorMsg);
+          await emitter.emitStatus("failed", errorMsg);
         }
       }
     }
 
-    // Add the user prompt text
-    contentParts.push({ type: "text", text: payload.inputPrompt });
-
-    // Stream the response
-    const stream = anthropic.messages.stream({
-      model: "claude-sonnet-4-5-20250929",
-      max_tokens: 8192,
-      system: payload.resolvedPrompt,
-      messages: [{ role: "user", content: contentParts }],
-    });
-
-    let fullResponse = "";
-
-    stream.on("text", (text) => {
-      fullResponse += text;
-    });
-
-    // Emit chunks periodically
-    let lastEmitted = 0;
-    const CHUNK_SIZE = 200;
-    stream.on("text", async (text) => {
-      fullResponse.length; // force evaluation
-      if (fullResponse.length - lastEmitted >= CHUNK_SIZE) {
-        const chunk = fullResponse.slice(lastEmitted);
-        lastEmitted = fullResponse.length;
-        await emitter.emitMessage("assistant", chunk);
-      }
-    });
-
-    const finalMessage = await stream.finalMessage();
-
-    // Emit any remaining text
-    if (fullResponse.length > lastEmitted) {
-      await emitter.emitMessage("assistant", fullResponse.slice(lastEmitted));
-    }
-
-    // Extract and emit any code diffs from the response
-    const diffBlocks = extractDiffs(fullResponse);
-    for (const diff of diffBlocks) {
-      await emitter.emitDiff(diff);
-    }
-
-    // Emit usage info
-    const usage = finalMessage.usage;
-    await emitter.emitLog(
-      `tokens: input=${usage.input_tokens} output=${usage.output_tokens}`
-    );
-
-    await emitter.emitStatus("completed", "Agent run completed successfully");
-    log.info({ usage }, "claude agent completed");
+    log.info("claude agent completed");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
@@ -96,14 +72,4 @@ export async function runClaudeAgent(
     await emitter.emitStatus("failed", message);
     log.error({ err }, "claude agent failed");
   }
-}
-
-function extractDiffs(text: string): string[] {
-  const diffs: string[] = [];
-  const regex = /```diff\n([\s\S]*?)```/g;
-  let match;
-  while ((match = regex.exec(text)) !== null) {
-    if (match[1]) diffs.push(match[1].trim());
-  }
-  return diffs;
 }

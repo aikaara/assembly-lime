@@ -1,31 +1,25 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKUserMessage, SDKResultSuccess, SDKResultError } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentJobPayload } from "@assembly-lime/shared";
-import { DaytonaWorkspace, extractFileChanges } from "@assembly-lime/shared";
+import { DaytonaWorkspace } from "@assembly-lime/shared";
 import type { AgentEventEmitter } from "./event-emitter";
 import { createPullRequest, buildPRTitle, buildPRBody } from "../git/pr-creator";
+import { createDaytonaMcpServer } from "./daytona-mcp";
 import { logger } from "../lib/logger";
 
-const anthropic = new Anthropic();
+const DAYTONA_SYSTEM_PROMPT = `You are an AI coding agent operating in a remote Daytona workspace.
 
-const WORKSPACE_SYSTEM_PROMPT = `You are an AI coding agent operating inside a git workspace. You have direct access to the repository files.
-
-When you need to create, modify, or delete files, output them using this XML format:
-
-<file path="relative/path/to/file.ts" action="create">
-file content here
-</file>
-
-<file path="relative/path/to/file.ts" action="modify">
-full file content with modifications
-</file>
-
-<file path="relative/path/to/delete.ts" action="delete"></file>
+Use the daytona_* MCP tools to interact with files and run commands:
+- daytona_read_file: Read a file by relative path
+- daytona_write_file: Write/create a file by relative path
+- daytona_delete_file: Delete a file
+- daytona_exec: Run a shell command in the workspace
+- daytona_list_files: List files in a directory
 
 Rules:
-- Always provide the FULL file content for create/modify actions (not diffs or patches)
-- Use relative paths from the repository root
-- You may output multiple <file> blocks in a single response
-- Explain your changes before outputting the file blocks
+- Always use relative paths from the repository root
+- Use daytona_exec for running tests, installing deps, etc.
+- Explain your changes before making them
 `;
 
 export async function runDaytonaWorkspaceAgent(
@@ -37,154 +31,138 @@ export async function runDaytonaWorkspaceAgent(
   const repo = payload.repo!;
 
   await emitter.emitStatus("running");
-  log.info({ owner: repo.owner, name: repo.name }, "daytona workspace agent started");
+  log.info({ owner: repo.owner, name: repo.name }, "daytona workspace agent started (Agent SDK)");
 
   try {
     // 1. Verify workspace branch
     const branch = await workspace.getCurrentBranch();
     await emitter.emitLog(`workspace branch: ${branch}`);
 
-    // 2. Call Claude with workspace-aware system prompt
-    const systemPrompt = [WORKSPACE_SYSTEM_PROMPT, payload.resolvedPrompt].join("\n\n");
+    // 2. Build system prompt
+    const systemPrompt = [DAYTONA_SYSTEM_PROMPT, payload.resolvedPrompt].join(
+      "\n\n"
+    );
 
-    const contentParts: Anthropic.MessageCreateParams["messages"][0]["content"] = [];
+    // 3. Create in-process MCP server for Daytona file/process operations
+    const daytonaMcp = createDaytonaMcpServer(workspace);
 
-    if (payload.images && payload.images.length > 0) {
-      for (const img of payload.images) {
-        if (img.presignedUrl) {
-          const response = await fetch(img.presignedUrl);
-          const buffer = await response.arrayBuffer();
-          const base64 = Buffer.from(buffer).toString("base64");
-          const mediaType = img.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp";
-          contentParts.push({
-            type: "image",
-            source: { type: "base64", media_type: mediaType, data: base64 },
-          });
+    // SDK MCP servers require async generator prompt input
+    async function* promptGenerator(): AsyncGenerator<SDKUserMessage> {
+      yield {
+        type: "user",
+        message: {
+          role: "user",
+          content: payload.inputPrompt,
+        },
+        parent_tool_use_id: null,
+        session_id: "",
+      };
+    }
+
+    // 4. Run Agent SDK with Daytona MCP tools (no built-in tools)
+    for await (const message of query({
+      prompt: promptGenerator(),
+      options: {
+        systemPrompt,
+        allowedTools: [
+          "mcp__daytona-workspace__daytona_read_file",
+          "mcp__daytona-workspace__daytona_write_file",
+          "mcp__daytona-workspace__daytona_delete_file",
+          "mcp__daytona-workspace__daytona_exec",
+          "mcp__daytona-workspace__daytona_list_files",
+        ],
+        mcpServers: {
+          "daytona-workspace": daytonaMcp,
+        },
+        permissionMode: "bypassPermissions",
+        allowDangerouslySkipPermissions: true,
+        model: "sonnet",
+        maxTurns: 40,
+        executable: "bun",
+        env: {
+          CLAUDE_CODE_USE_BEDROCK: "1",
+          ...(process.env as Record<string, string>),
+        },
+      },
+    })) {
+      if (message.type === "assistant" && message.message?.content) {
+        for (const block of message.message.content) {
+          if ("text" in block && block.text) {
+            await emitter.emitMessage("assistant", block.text);
+          } else if ("name" in block) {
+            await emitter.emitLog(`tool: ${block.name}`);
+          }
         }
       }
-    }
 
-    contentParts.push({ type: "text", text: payload.inputPrompt });
-
-    const stream = anthropic.messages.stream({
-      model: "claude-sonnet-4-5-20250929",
-      max_tokens: 16384,
-      system: systemPrompt,
-      messages: [{ role: "user", content: contentParts }],
-    });
-
-    // 3. Stream response and emit message events
-    let fullResponse = "";
-    let lastEmitted = 0;
-    const CHUNK_SIZE = 200;
-
-    stream.on("text", async (text) => {
-      fullResponse += text;
-      if (fullResponse.length - lastEmitted >= CHUNK_SIZE) {
-        const chunk = fullResponse.slice(lastEmitted);
-        lastEmitted = fullResponse.length;
-        await emitter.emitMessage("assistant", chunk);
-      }
-    });
-
-    const finalMessage = await stream.finalMessage();
-
-    // Emit remaining text
-    if (fullResponse.length > lastEmitted) {
-      await emitter.emitMessage("assistant", fullResponse.slice(lastEmitted));
-    }
-
-    // Emit usage
-    const usage = finalMessage.usage;
-    await emitter.emitLog(`tokens: input=${usage.input_tokens} output=${usage.output_tokens}`);
-
-    // 4. Extract file changes
-    const changes = extractFileChanges(fullResponse);
-    if (changes.length === 0) {
-      await emitter.emitLog("no file changes detected in agent response");
-      await emitter.emitStatus("completed", "Agent completed without file changes");
-      return;
-    }
-
-    await emitter.emitLog(`extracted ${changes.length} file change(s)`);
-
-    // 5. Apply changes via Daytona SDK
-    for (const change of changes) {
-      if (change.action === "delete") {
-        await workspace.deleteFile(change.path);
-        log.info({ path: change.path }, "file deleted");
-      } else {
-        await workspace.writeFile(change.path, change.content ?? "");
-        log.info({ path: change.path, action: change.action }, "file written");
+      if (message.type === "result") {
+        const result = message as SDKResultSuccess | SDKResultError;
+        if (result.subtype !== "success") {
+          const errorMsg = result.errors.join("; ") || `Agent failed: ${result.subtype}`;
+          throw new Error(errorMsg);
+        }
+        await emitter.emitLog(
+          `tokens: input=${result.usage.input_tokens} output=${result.usage.output_tokens} cost=$${result.total_cost_usd.toFixed(4)}`
+        );
       }
     }
-    await emitter.emitLog("file changes applied to workspace");
 
-    // 6. Get unified diff and emit
+    // 5. Post-agent: get diff, commit, push, create PR
     const baseBranch = repo.ref ?? repo.defaultBranch;
     const diff = await workspace.getDiffUnified(`origin/${baseBranch}`);
     if (diff) {
-      await emitter.emitDiff(diff, `${changes.length} file(s) changed`);
+      await emitter.emitDiff(diff);
     }
 
-    // 7. Commit and push
     const commitMsg = `[AL/${payload.mode}] ${payload.inputPrompt.slice(0, 72)}`;
+    await workspace.stageAll();
+    const commitSha = await workspace.commit(
+      commitMsg,
+      "Assembly Lime",
+      "agent@assemblylime.dev"
+    );
+    await workspace.push();
+    await emitter.emitLog(`committed and pushed: ${commitSha}`);
+
+    const diffStats = await workspace.getDiffStats(`${branch}~1`);
+
+    // 6. Create PR
     try {
-      await workspace.stageAll();
+      const token = repo.authToken;
+      if (!token) throw new Error("No auth token available for PR creation");
 
-      const commitSha = await workspace.commit(
-        commitMsg,
-        "Assembly Lime",
-        "agent@assemblylime.dev",
-      );
-      await workspace.push();
-      await emitter.emitLog(`committed and pushed: ${commitSha}`);
+      const prResult = await createPullRequest(token, {
+        owner: repo.owner,
+        repo: repo.name,
+        head: branch,
+        base: baseBranch,
+        title: buildPRTitle(payload.mode, payload.inputPrompt),
+        body: buildPRBody({
+          mode: payload.mode,
+          runId: payload.runId,
+          prompt: payload.inputPrompt,
+          diffStats,
+        }),
+        draft: payload.mode === "plan",
+      });
 
-      const diffStats = await workspace.getDiffStats(`${branch}~1`);
-
-      // 8. Create PR using authToken from payload
-      try {
-        const token = repo.authToken;
-        if (!token) throw new Error("No auth token available for PR creation");
-
-        const prResult = await createPullRequest(token, {
-          owner: repo.owner,
-          repo: repo.name,
-          head: branch,
-          base: baseBranch,
-          title: buildPRTitle(payload.mode, payload.inputPrompt),
-          body: buildPRBody({
-            mode: payload.mode,
-            runId: payload.runId,
-            prompt: payload.inputPrompt,
-            diffStats,
-          }),
-          draft: payload.mode === "plan",
-        });
-
-        await emitter.emitArtifact("Pull Request", prResult.url);
-        await emitter.emitLog(`PR #${prResult.number} created: ${prResult.url}`);
-      } catch (prErr) {
-        const msg = prErr instanceof Error ? prErr.message : String(prErr);
-        log.warn({ err: prErr }, "PR creation failed (code is pushed)");
-        await emitter.emitLog(`PR creation failed (code is pushed): ${msg}`);
-      }
-
-      // 9. Start dev server + preview
-      try {
-        await startDevServerAndPreview(workspace, payload, emitter, branch);
-      } catch (e) {
-        log.warn({ err: (e as Error)?.message }, "dev server preview failed");
-      }
-
-      await emitter.emitStatus("completed", "Agent run completed successfully");
-    } catch (pushErr) {
-      const msg = pushErr instanceof Error ? pushErr.message : String(pushErr);
-      await emitter.emitError(`push failed: ${msg}`);
-      await emitter.emitStatus("failed", msg);
+      await emitter.emitArtifact("Pull Request", prResult.url);
+      await emitter.emitLog(`PR #${prResult.number} created: ${prResult.url}`);
+    } catch (prErr) {
+      const msg = prErr instanceof Error ? prErr.message : String(prErr);
+      log.warn({ err: prErr }, "PR creation failed (code is pushed)");
+      await emitter.emitLog(`PR creation failed (code is pushed): ${msg}`);
     }
 
-    log.info({ usage }, "daytona workspace agent completed");
+    // 7. Start dev server + preview
+    try {
+      await startDevServerAndPreview(workspace, payload, emitter, branch);
+    } catch (e) {
+      log.warn({ err: (e as Error)?.message }, "dev server preview failed");
+    }
+
+    await emitter.emitStatus("completed", "Agent run completed successfully");
+    log.info("daytona workspace agent completed");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
@@ -195,8 +173,7 @@ export async function runDaytonaWorkspaceAgent(
 }
 
 /**
- * Start dev server via DaytonaWorkspace.startDevServer() (which reads .env
- * files for PORT override), emit preview URL, and register sandbox with API.
+ * Start dev server via DaytonaWorkspace.startDevServer() and emit preview URL.
  */
 async function startDevServerAndPreview(
   workspace: DaytonaWorkspace,

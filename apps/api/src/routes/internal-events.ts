@@ -23,8 +23,8 @@ export function internalEventRoutes(db: Db) {
   return new Elysia({ prefix: "/internal" })
     .post(
       "/agent-events/:runId",
-      async ({ params, body, set, headers }) => {
-        const key = headers["x-internal-key"];
+      async ({ request, params, body, set }) => {
+        const key = request.headers.get("x-internal-key");
         if (!key || !verifyInternalKey(key)) {
           set.status = 401;
           return { error: "unauthorized" };
@@ -81,7 +81,6 @@ export function internalEventRoutes(db: Db) {
         return { ok: true };
       },
       {
-        body: t.Any(),
         params: t.Object({ runId: t.String() }),
       }
     );
