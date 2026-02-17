@@ -1,11 +1,8 @@
 import { Elysia } from "elysia";
-import { createBullBoard } from "@bull-board/api";
-import { BullMQAdapter } from "@bull-board/api/bullMQAdapter";
-import { ElysiaAdapter } from "@bull-board/elysia";
 import { db } from "./db";
 import { logger } from "./lib/logger";
-import { redis, redisSub } from "./lib/redis";
-import { claudeQueue, codexQueue, depScanQueue, startDepScanWorker } from "./lib/bullmq";
+import { startDepScanWorker } from "./lib/queue";
+import { initSessionStore, pruneExpiredSessions } from "./lib/session";
 import { authRoutes } from "./routes/auth";
 import { meRoutes } from "./routes/me";
 import { projectRoutes } from "./routes/projects";
@@ -22,20 +19,12 @@ import { domainRoutes } from "./routes/domains";
 import { toolDefinitionRoutes } from "./routes/tool-definitions";
 import { repositoryDependencyRoutes } from "./routes/repository-dependencies";
 import { envVarRoutes } from "./routes/env-vars";
-import { wsRoutes, broadcastToWs } from "./routes/ws";
-import { startEventSubscriber } from "./services/event-subscriber";
+import { wsRoutes } from "./routes/ws";
+import { internalEventRoutes } from "./routes/internal-events";
 import { scanAllDependencies } from "./services/dependency-scanner.service";
 
-// BullMQ Dashboard (lazy — no active Redis connection needed yet)
-const bullBoardAdapter = new ElysiaAdapter("/bull-board");
-createBullBoard({
-  queues: [
-    new BullMQAdapter(claudeQueue),
-    new BullMQAdapter(codexQueue),
-    new BullMQAdapter(depScanQueue),
-  ],
-  serverAdapter: bullBoardAdapter,
-});
+// ── Initialize session store ─────────────────────────────────────────
+initSessionStore(db);
 
 // ── Start HTTP server FIRST so health checks pass immediately ────────
 const port = Number(process.env.PORT) || 3434;
@@ -69,7 +58,7 @@ const app = new Elysia()
   .use(toolDefinitionRoutes(db))
   .use(repositoryDependencyRoutes(db))
   .use(envVarRoutes(db))
-  .use(await bullBoardAdapter.registerPlugin())
+  .use(internalEventRoutes(db))
   .use(wsRoutes())
   .listen({ port, hostname: "0.0.0.0" });
 
@@ -80,13 +69,19 @@ logger.info(
 
 // ── Initialize background services AFTER server is listening ─────────
 try {
-  if (redis.status === "wait") await redis.connect();
-  if (redisSub.status === "wait") await redisSub.connect();
-  await startEventSubscriber(db, broadcastToWs);
   startDepScanWorker(async (tenantId, jobLog, updateProgress) => {
     await scanAllDependencies(db, tenantId, jobLog, updateProgress);
   });
   logger.info("background services initialized");
 } catch (err) {
-  logger.error({ err }, "failed to initialize background services — server is up but queues/pubsub unavailable");
+  logger.error({ err }, "failed to initialize background services — server is up but queues unavailable");
 }
+
+// ── Prune expired sessions hourly ────────────────────────────────────
+setInterval(async () => {
+  try {
+    await pruneExpiredSessions();
+  } catch (err) {
+    logger.error({ err }, "failed to prune expired sessions");
+  }
+}, 60 * 60 * 1000);

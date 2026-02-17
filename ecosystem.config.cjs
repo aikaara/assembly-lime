@@ -30,6 +30,19 @@ const nodeModules = path.resolve(__dirname, "node_modules");
 module.exports = {
   apps: [
     {
+      name: "al-bunqueue",
+      script: path.resolve(__dirname, "node_modules/.bin/bunqueue"),
+      args: "start --tcp-port 6789 --http-port 6790 --data-path ./data/bunqueue.db",
+      interpreter: "none",
+      autorestart: true,
+      max_restarts: 10,
+      restart_delay: 2000,
+      max_memory_restart: "256M",
+      env: {
+        HOST: "0.0.0.0",
+      },
+    },
+    {
       name: "al-api",
       script: "bun",
       args: "apps/api/src/index.ts",
@@ -43,6 +56,9 @@ module.exports = {
         NODE_ENV: "production",
         NODE_PATH: nodeModules,
         BUN_INSTALL_BIN: nodeModules + "/.bin",
+        BUNQUEUE_HOST: "localhost",
+        BUNQUEUE_PORT: "6789",
+        API_BASE_URL: "http://localhost:3434",
       },
     },
     {
@@ -59,6 +75,9 @@ module.exports = {
         NODE_ENV: "production",
         NODE_PATH: nodeModules,
         BUN_INSTALL_BIN: nodeModules + "/.bin",
+        BUNQUEUE_HOST: "localhost",
+        BUNQUEUE_PORT: "6789",
+        API_BASE_URL: "http://localhost:3434",
       },
     },
     {
@@ -75,6 +94,9 @@ module.exports = {
         NODE_ENV: "production",
         NODE_PATH: nodeModules,
         BUN_INSTALL_BIN: nodeModules + "/.bin",
+        BUNQUEUE_HOST: "localhost",
+        BUNQUEUE_PORT: "6789",
+        API_BASE_URL: "http://localhost:3434",
       },
     },
   ],

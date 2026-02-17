@@ -8,7 +8,7 @@ import { browseFileTree, getFileContent, listOrgRepos, importRepos } from "../se
 import { getConnectorToken } from "../services/connector.service";
 import { scanRepoForConfigs, listRepoConfigs } from "../services/env-detection.service";
 import { autoCreateFromDetectedKeys } from "../services/env-var.service";
-import { depScanQueue } from "../lib/bullmq";
+import { depScanQueue } from "../lib/queue";
 import { ensureFork, getForkStatus } from "../services/fork.service";
 import { encryptToken } from "../lib/encryption";
 import { childLogger } from "../lib/logger";

@@ -1,16 +1,20 @@
-import { Worker } from "bullmq";
+import { Worker } from "bunqueue/client";
 import {
   QUEUE_AGENT_RUNS_CODEX,
   DaytonaWorkspace,
   type AgentJobPayload,
 } from "@assembly-lime/shared";
-import { redis, createPublisher } from "./lib/redis";
 import { logger } from "./lib/logger";
 import { AgentEventEmitter } from "./agent/event-emitter";
 import { runCodexAgent } from "./agent/codex-runner";
 import { launchK8sJob } from "./k8s/job-launcher";
 
 const USE_K8S_SANDBOX = process.env.USE_K8S_SANDBOX === "true";
+
+const connection = {
+  host: process.env.BUNQUEUE_HOST ?? "localhost",
+  port: Number(process.env.BUNQUEUE_PORT) || 6789,
+};
 
 // ── K8s single-run mode ──────────────────────────────────────────────
 const encodedPayload = process.env.AGENT_JOB_PAYLOAD;
@@ -19,19 +23,12 @@ if (encodedPayload) {
   const payload: AgentJobPayload = JSON.parse(
     Buffer.from(encodedPayload, "base64").toString("utf-8")
   );
-  const pub = createPublisher();
-  await pub.connect();
-  const emitter = new AgentEventEmitter(pub, payload.runId);
-  try {
-    await runCodexAgent(payload, emitter);
-  } finally {
-    await pub.quit();
-  }
+  const emitter = new AgentEventEmitter(payload.runId);
+  await runCodexAgent(payload, emitter);
   process.exit(0);
 }
 
-// ── BullMQ worker mode ───────────────────────────────────────────────
-await redis.connect();
+// ── bunqueue worker mode ────────────────────────────────────────────
 
 const worker = new Worker<AgentJobPayload>(
   QUEUE_AGENT_RUNS_CODEX,
@@ -61,67 +58,61 @@ const worker = new Worker<AgentJobPayload>(
           log.info({ keyCount: Object.keys(payload.sandbox.envVars).length }, "env vars injected into workspace");
         }
 
-        const pub = createPublisher();
-        await pub.connect();
-        const emitter = new AgentEventEmitter(pub, payload.runId);
-        try {
-          // 1. Run codex agent (text generation)
-          await runCodexAgent(payload, emitter);
+        const emitter = new AgentEventEmitter(payload.runId);
+        // 1. Run codex agent (text generation)
+        await runCodexAgent(payload, emitter);
 
-          // 2. Start dev server + preview
-          const config = await detectStartAndPort(workspace.sandbox, workspace.repoDir);
-          log.info({ installCommand: config.installCommand, startCommand: config.startCommand, port: config.port, portSource: config.portSource }, "daytona: detected start config");
+        // 2. Start dev server + preview
+        const config = await detectStartAndPort(workspace.sandbox, workspace.repoDir);
+        log.info({ installCommand: config.installCommand, startCommand: config.startCommand, port: config.port, portSource: config.portSource }, "daytona: detected start config");
 
-          if (config.installCommand) {
-            await workspace.exec(`cd ${workspace.repoDir} && ${config.installCommand}`, 600);
-          }
+        if (config.installCommand) {
+          await workspace.exec(`cd ${workspace.repoDir} && ${config.installCommand}`, 600);
+        }
 
-          const sessionId = `run-${payload.runId}`;
-          await workspace.sandbox.process.createSession(sessionId);
-          await workspace.sandbox.process.executeSessionCommand(
-            sessionId,
-            { command: `cd ${workspace.repoDir} && ${config.startCommand}`, runAsync: true },
-            0,
-          );
-          log.info("daytona: dev server starting in background session");
+        const sessionId = `run-${payload.runId}`;
+        await workspace.sandbox.process.createSession(sessionId);
+        await workspace.sandbox.process.executeSessionCommand(
+          sessionId,
+          { command: `cd ${workspace.repoDir} && ${config.startCommand}`, runAsync: true },
+          0,
+        );
+        log.info("daytona: dev server starting in background session");
 
-          // 3. Preview URL + register
-          const previewUrl = await workspace.getSignedPreviewUrl(config.port, 3600);
-          if (previewUrl) {
-            await emitter.emit({ type: "preview", previewUrl, branch: branchName, status: "active" });
-            log.info({ previewUrl }, "daytona: preview link emitted");
+        // 3. Preview URL + register
+        const previewUrl = await workspace.getSignedPreviewUrl(config.port, 3600);
+        if (previewUrl) {
+          await emitter.emit({ type: "preview", previewUrl, branch: branchName, status: "active" });
+          log.info({ previewUrl }, "daytona: preview link emitted");
 
-            try {
-              const apiBase = (process.env.API_BASE_URL || "http://localhost:3434").replace(/\/$/, "");
-              const internalKey = process.env.INTERNAL_AGENT_API_KEY;
-              if (internalKey) {
-                const body = {
-                  tenantId: payload.tenantId,
-                  repositoryId: payload.repo.repositoryId,
-                  branch: branchName,
-                  sandboxId: workspace.sandbox.id,
-                  previewUrl,
-                  status: "running",
-                  ports: [{ containerPort: config.port, source: config.portSource, provider: "daytona" }],
-                };
-                await fetch(`${apiBase}/sandboxes/register-internal`, {
-                  method: "POST",
-                  headers: {
-                    "content-type": "application/json",
-                    "x-internal-key": internalKey,
-                  },
-                  body: JSON.stringify(body),
-                });
-                log.info({ sandboxId: workspace.sandbox.id }, "daytona: sandbox registered with API");
-              } else {
-                log.warn("INTERNAL_AGENT_API_KEY not set; skipping sandbox registration");
-              }
-            } catch (e) {
-              log.warn({ err: (e as Error)?.message }, "daytona: failed to register sandbox in API");
+          try {
+            const apiBase = (process.env.API_BASE_URL || "http://localhost:3434").replace(/\/$/, "");
+            const internalKey = process.env.INTERNAL_AGENT_API_KEY;
+            if (internalKey) {
+              const body = {
+                tenantId: payload.tenantId,
+                repositoryId: payload.repo.repositoryId,
+                branch: branchName,
+                sandboxId: workspace.sandbox.id,
+                previewUrl,
+                status: "running",
+                ports: [{ containerPort: config.port, source: config.portSource, provider: "daytona" }],
+              };
+              await fetch(`${apiBase}/sandboxes/register-internal`, {
+                method: "POST",
+                headers: {
+                  "content-type": "application/json",
+                  "x-internal-key": internalKey,
+                },
+                body: JSON.stringify(body),
+              });
+              log.info({ sandboxId: workspace.sandbox.id }, "daytona: sandbox registered with API");
+            } else {
+              log.warn("INTERNAL_AGENT_API_KEY not set; skipping sandbox registration");
             }
+          } catch (e) {
+            log.warn({ err: (e as Error)?.message }, "daytona: failed to register sandbox in API");
           }
-        } finally {
-          await pub.quit();
         }
       } catch (e) {
         log.warn({ err: (e as Error)?.message }, "daytona: workspace setup failed");
@@ -136,17 +127,11 @@ const worker = new Worker<AgentJobPayload>(
     }
 
     // Direct execution mode (dev)
-    const pub = createPublisher();
-    await pub.connect();
-    const emitter = new AgentEventEmitter(pub, payload.runId);
-    try {
-      await runCodexAgent(payload, emitter);
-    } finally {
-      await pub.quit();
-    }
+    const emitter = new AgentEventEmitter(payload.runId);
+    await runCodexAgent(payload, emitter);
   },
   {
-    connection: redis,
+    connection,
     concurrency: 2,
   }
 );

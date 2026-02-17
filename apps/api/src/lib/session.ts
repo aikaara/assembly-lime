@@ -1,10 +1,17 @@
-import { redis } from "./redis";
+import { eq, gt, and, lt } from "drizzle-orm";
+import type { Db } from "@assembly-lime/shared/db";
+import { sessions } from "@assembly-lime/shared/db/schema";
 
 export const SESSION_COOKIE_NAME = "al_session";
 const SESSION_TTL_SEC = 7 * 24 * 60 * 60; // 7 days
-const SESSION_PREFIX = "session:";
 
 type SessionData = { userId: number; tenantId: number };
+
+let _db: Db;
+
+export function initSessionStore(db: Db) {
+  _db = db;
+}
 
 function generateToken(): string {
   const bytes = new Uint8Array(32);
@@ -16,23 +23,30 @@ function generateToken(): string {
 
 export async function createSession(data: SessionData): Promise<string> {
   const token = generateToken();
-  await redis.set(
-    `${SESSION_PREFIX}${token}`,
-    JSON.stringify(data),
-    "EX",
-    SESSION_TTL_SEC,
-  );
+  const expiresAt = new Date(Date.now() + SESSION_TTL_SEC * 1000);
+  await _db.insert(sessions).values({
+    token,
+    userId: data.userId,
+    tenantId: data.tenantId,
+    expiresAt,
+  });
   return token;
 }
 
 export async function getSession(token: string): Promise<SessionData | null> {
-  const raw = await redis.get(`${SESSION_PREFIX}${token}`);
-  if (!raw) return null;
-  return JSON.parse(raw) as SessionData;
+  const [row] = await _db
+    .select({ userId: sessions.userId, tenantId: sessions.tenantId })
+    .from(sessions)
+    .where(and(eq(sessions.token, token), gt(sessions.expiresAt, new Date())));
+  return row ?? null;
 }
 
 export async function deleteSession(token: string): Promise<void> {
-  await redis.del(`${SESSION_PREFIX}${token}`);
+  await _db.delete(sessions).where(eq(sessions.token, token));
+}
+
+export async function pruneExpiredSessions(): Promise<void> {
+  await _db.delete(sessions).where(lt(sessions.expiresAt, new Date()));
 }
 
 export function buildCookieHeader(token?: string, clear?: boolean): string {

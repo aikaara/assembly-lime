@@ -10,7 +10,10 @@ const log = childLogger({ module: "k8s-job-launcher" });
 
 const K8S_AGENT_IMAGE =
   process.env.K8S_AGENT_IMAGE_CLAUDE ?? "ghcr.io/assembly-lime/agent-claude:latest";
-const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
+const API_BASE_URL = process.env.API_BASE_URL ?? "http://localhost:3434";
+const INTERNAL_AGENT_API_KEY = process.env.INTERNAL_AGENT_API_KEY ?? "";
+const BUNQUEUE_HOST = process.env.BUNQUEUE_HOST ?? "localhost";
+const BUNQUEUE_PORT = process.env.BUNQUEUE_PORT ?? "6789";
 const GIT_AUTHOR_EMAIL = process.env.GIT_AUTHOR_EMAIL ?? "agent@assemblylime.dev";
 const GIT_AUTHOR_NAME = process.env.GIT_AUTHOR_NAME ?? "Assembly Lime Agent";
 
@@ -81,7 +84,10 @@ export async function launchAgentK8sJob(
   // Build agent container env vars
   const agentEnvVars: k8s.V1EnvVar[] = [
     { name: "AGENT_JOB_PAYLOAD", value: encodedPayload },
-    { name: "REDIS_URL", value: REDIS_URL },
+    { name: "API_BASE_URL", value: API_BASE_URL },
+    { name: "INTERNAL_AGENT_API_KEY", value: INTERNAL_AGENT_API_KEY },
+    { name: "BUNQUEUE_HOST", value: BUNQUEUE_HOST },
+    { name: "BUNQUEUE_PORT", value: BUNQUEUE_PORT },
     { name: "WORKSPACE_DIR", value: "/workspace" },
     { name: "GIT_AUTHOR_EMAIL", value: GIT_AUTHOR_EMAIL },
     { name: "GIT_AUTHOR_NAME", value: GIT_AUTHOR_NAME },

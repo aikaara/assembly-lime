@@ -1,5 +1,4 @@
-import { Queue, Worker, type Job } from "bullmq";
-import { redis, createRedisClient } from "./redis";
+import { Queue, Worker, type Job } from "bunqueue/client";
 import {
   QUEUE_AGENT_RUNS_CLAUDE,
   QUEUE_AGENT_RUNS_CODEX,
@@ -8,26 +7,21 @@ import {
 } from "@assembly-lime/shared";
 import { childLogger } from "./logger";
 
-const log = childLogger({ module: "bullmq" });
+const log = childLogger({ module: "queue" });
+
+const connection = {
+  host: process.env.BUNQUEUE_HOST ?? "localhost",
+  port: Number(process.env.BUNQUEUE_PORT) || 6789,
+};
 
 // ── Agent queues ────────────────────────────────────────────────────
 
 export const claudeQueue = new Queue<AgentJobPayload>(QUEUE_AGENT_RUNS_CLAUDE, {
-  connection: redis,
-  defaultJobOptions: {
-    attempts: 1,
-    removeOnComplete: { count: 1000 },
-    removeOnFail: { count: 5000 },
-  },
+  connection,
 });
 
 export const codexQueue = new Queue<AgentJobPayload>(QUEUE_AGENT_RUNS_CODEX, {
-  connection: redis,
-  defaultJobOptions: {
-    attempts: 1,
-    removeOnComplete: { count: 1000 },
-    removeOnFail: { count: 5000 },
-  },
+  connection,
 });
 
 export function getQueueForProvider(
@@ -41,16 +35,10 @@ export function getQueueForProvider(
 export type DepScanJobPayload = { tenantId: number };
 
 export const depScanQueue = new Queue<DepScanJobPayload>(QUEUE_DEPENDENCY_SCANS, {
-  connection: redis,
-  defaultJobOptions: {
-    attempts: 2,
-    backoff: { type: "exponential", delay: 5000 },
-    removeOnComplete: { count: 200 },
-    removeOnFail: { count: 500 },
-  },
+  connection,
 });
 
-/** Logger callback that writes to both pino and BullMQ job.log */
+/** Logger callback that writes to both pino and job.log */
 export type JobLogger = (message: string) => Promise<void>;
 
 function makeJobLogger(job: Job): JobLogger {
@@ -63,7 +51,6 @@ function makeJobLogger(job: Job): JobLogger {
 /**
  * Start the dependency scan worker.
  * Called once from index.ts after DB is ready.
- * Uses a dedicated Redis connection (BullMQ requirement for workers).
  */
 export function startDepScanWorker(
   processFn: (tenantId: number, jobLog: JobLogger, updateProgress: (pct: number) => Promise<void>) => Promise<void>
@@ -85,7 +72,7 @@ export function startDepScanWorker(
       await job.updateProgress(100);
     },
     {
-      connection: createRedisClient("dep-scan-worker"),
+      connection,
       concurrency: 2,
     }
   );

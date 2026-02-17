@@ -1,10 +1,9 @@
-import { Worker } from "bullmq";
+import { Worker } from "bunqueue/client";
 import {
   QUEUE_AGENT_RUNS_CLAUDE,
   DaytonaWorkspace,
   type AgentJobPayload,
 } from "@assembly-lime/shared";
-import { redis, createPublisher } from "./lib/redis";
 import { logger } from "./lib/logger";
 import { AgentEventEmitter } from "./agent/event-emitter";
 import { runClaudeAgent } from "./agent/claude-runner";
@@ -15,6 +14,11 @@ import { launchK8sJob } from "./k8s/job-launcher";
 
 const USE_K8S_SANDBOX = process.env.USE_K8S_SANDBOX === "true";
 
+const connection = {
+  host: process.env.BUNQUEUE_HOST ?? "localhost",
+  port: Number(process.env.BUNQUEUE_PORT) || 6789,
+};
+
 // ── K8s single-run mode ──────────────────────────────────────────────
 // When launched as a K8s Job, the payload is in AGENT_JOB_PAYLOAD env var.
 const encodedPayload = process.env.AGENT_JOB_PAYLOAD;
@@ -23,25 +27,18 @@ if (encodedPayload) {
   const payload: AgentJobPayload = JSON.parse(
     Buffer.from(encodedPayload, "base64").toString("utf-8")
   );
-  const pub = createPublisher();
-  await pub.connect();
-  const emitter = new AgentEventEmitter(pub, payload.runId);
-  try {
-    const workspaceDir = process.env.WORKSPACE_DIR;
-    if (workspaceDir && payload.repo) {
-      logger.info({ workspaceDir }, "routing to workspace agent");
-      await runWorkspaceAgent(payload, emitter);
-    } else {
-      await runClaudeAgent(payload, emitter);
-    }
-  } finally {
-    await pub.quit();
+  const emitter = new AgentEventEmitter(payload.runId);
+  const workspaceDir = process.env.WORKSPACE_DIR;
+  if (workspaceDir && payload.repo) {
+    logger.info({ workspaceDir }, "routing to workspace agent");
+    await runWorkspaceAgent(payload, emitter);
+  } else {
+    await runClaudeAgent(payload, emitter);
   }
   process.exit(0);
 }
 
-// ── BullMQ worker mode ───────────────────────────────────────────────
-await redis.connect();
+// ── bunqueue worker mode ────────────────────────────────────────────
 
 const worker = new Worker<AgentJobPayload>(
   QUEUE_AGENT_RUNS_CLAUDE,
@@ -68,14 +65,8 @@ const worker = new Worker<AgentJobPayload>(
         log.info({ keyCount: Object.keys(payload.sandbox.envVars).length }, "env vars injected into workspace");
       }
 
-      const pub = createPublisher();
-      await pub.connect();
-      const emitter = new AgentEventEmitter(pub, payload.runId);
-      try {
-        await runDaytonaWorkspaceAgent(payload, emitter, workspace);
-      } finally {
-        await pub.quit();
-      }
+      const emitter = new AgentEventEmitter(payload.runId);
+      await runDaytonaWorkspaceAgent(payload, emitter, workspace);
       return;
     }
 
@@ -86,21 +77,15 @@ const worker = new Worker<AgentJobPayload>(
     }
 
     // Direct execution mode (dev)
-    const pub = createPublisher();
-    await pub.connect();
-    const emitter = new AgentEventEmitter(pub, payload.runId);
-    try {
-      if (payload.repos && payload.repos.length > 0) {
-        await runClaudeAgentMultiRepo(payload, emitter);
-      } else {
-        await runClaudeAgent(payload, emitter);
-      }
-    } finally {
-      await pub.quit();
+    const emitter = new AgentEventEmitter(payload.runId);
+    if (payload.repos && payload.repos.length > 0) {
+      await runClaudeAgentMultiRepo(payload, emitter);
+    } else {
+      await runClaudeAgent(payload, emitter);
     }
   },
   {
-    connection: redis,
+    connection,
     concurrency: 2,
   }
 );

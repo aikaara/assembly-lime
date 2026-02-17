@@ -9,7 +9,7 @@ import {
 import { getConnectorToken } from "./connector.service";
 import { storeDependencies, clearDependencies } from "./repo-dependency.service";
 import type { DependencyEdge } from "./repo-dependency.service";
-import type { JobLogger } from "../lib/bullmq";
+import type { JobLogger } from "../lib/queue";
 import { childLogger } from "../lib/logger";
 
 const log = childLogger({ module: "dependency-scanner" });
@@ -43,7 +43,7 @@ type RepoManifest = {
   files: { path: string; content: string }[];
 };
 
-/** Noop logger for non-BullMQ callers */
+/** Noop logger for non-queue callers */
 const noopLog: JobLogger = async () => {};
 const noopProgress = async (_: number) => {};
 

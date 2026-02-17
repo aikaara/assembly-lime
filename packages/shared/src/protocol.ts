@@ -114,7 +114,3 @@ export const QUEUE_AGENT_RUNS_CLAUDE = "agent-runs-claude";
 export const QUEUE_AGENT_RUNS_CODEX = "agent-runs-codex";
 export const QUEUE_DEPENDENCY_SCANS = "dependency-scans";
 
-// ── Redis pub/sub channel helpers ────────────────────────────────────
-export function agentEventsChannel(runId: number | string): string {
-  return `agent-events:${runId}`;
-}

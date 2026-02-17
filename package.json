@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "@daytonaio/sdk": "^0.143.0",
+    "bunqueue": "^2.4.6",
     "pm2": "^6.0.14",
     "postgres": "^3.4.8"
   }

@@ -9,7 +9,7 @@ import type {
 } from "@assembly-lime/shared";
 import { resolvePrompt } from "@assembly-lime/shared/prompts";
 import { resolveInstructionLayers } from "./instruction-resolver";
-import { getQueueForProvider } from "../lib/bullmq";
+import { getQueueForProvider } from "../lib/queue";
 import { getClusterClient } from "./k8s-cluster.service";
 import { getConnector, getConnectorToken } from "./connector.service";
 import { getDecryptedEnvVars } from "./env-var.service";
@@ -118,10 +118,10 @@ export async function createAgentRun(db: Db, input: CreateRunInput) {
     } catch {}
   }
 
-  // 5. Dispatch: Daytona (if SANDBOX_PROVIDER=daytona) → K8s → BullMQ
+  // 5. Dispatch: Daytona (if SANDBOX_PROVIDER=daytona) → K8s → bunqueue
   const sandboxProvider = process.env.SANDBOX_PROVIDER?.toLowerCase();
 
-  // Daytona path: always BullMQ, worker creates the sandbox
+  // Daytona path: always bunqueue, worker creates the sandbox
   if (sandboxProvider === "daytona" && payload.repo) {
     payload.sandbox = { provider: "daytona" };
     // Decrypt env vars if an env var set is specified
@@ -144,7 +144,7 @@ export async function createAgentRun(db: Db, input: CreateRunInput) {
     await queue.add(`run-${run.id}`, payload, { jobId: `run-${run.id}` });
     logger.info(
       { runId: run.id, provider: input.provider, mode: input.mode, sandbox: "daytona" },
-      "agent run enqueued via BullMQ (Daytona)",
+      "agent run enqueued (Daytona)",
     );
     return run;
   }
@@ -180,12 +180,12 @@ export async function createAgentRun(db: Db, input: CreateRunInput) {
       "agent run dispatched to K8s"
     );
   } else {
-    // BullMQ path (dev mode / no K8s)
+    // bunqueue path (dev mode / no K8s)
     const queue = getQueueForProvider(input.provider);
     await queue.add(`run-${run.id}`, payload, {
       jobId: `run-${run.id}`,
     });
-    logger.info({ runId: run.id, provider: input.provider, mode: input.mode }, "agent run enqueued via BullMQ");
+    logger.info({ runId: run.id, provider: input.provider, mode: input.mode }, "agent run enqueued");
   }
 
   return run;

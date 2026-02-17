@@ -2,7 +2,7 @@ import { eq, and } from "drizzle-orm";
 import type { Db } from "@assembly-lime/shared/db";
 import { agentRuns } from "@assembly-lime/shared/db/schema";
 import type { AgentProviderId, AgentMode, AgentJobPayload } from "@assembly-lime/shared";
-import { getQueueForProvider } from "../lib/bullmq";
+import { getQueueForProvider } from "../lib/queue";
 import { childLogger } from "../lib/logger";
 
 const log = childLogger({ module: "orchestrator-service" });

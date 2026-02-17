@@ -1,19 +1,26 @@
-import type Redis from "ioredis";
-import { agentEventsChannel, type AgentEvent } from "@assembly-lime/shared";
+import type { AgentEvent } from "@assembly-lime/shared";
+
+const API_BASE_URL = (process.env.API_BASE_URL || "http://localhost:3434").replace(/\/$/, "");
+const INTERNAL_KEY = process.env.INTERNAL_AGENT_API_KEY ?? "";
 
 export class AgentEventEmitter {
-  private publisher: Redis;
   private runId: number;
-  private channel: string;
+  private url: string;
 
-  constructor(publisher: Redis, runId: number) {
-    this.publisher = publisher;
+  constructor(runId: number) {
     this.runId = runId;
-    this.channel = agentEventsChannel(runId);
+    this.url = `${API_BASE_URL}/internal/agent-events/${runId}`;
   }
 
   async emit(event: AgentEvent): Promise<void> {
-    await this.publisher.publish(this.channel, JSON.stringify(event));
+    await fetch(this.url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-internal-key": INTERNAL_KEY,
+      },
+      body: JSON.stringify(event),
+    });
   }
 
   async emitStatus(

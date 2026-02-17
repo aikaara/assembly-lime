@@ -6,7 +6,7 @@ import {
   deleteDependency,
   getLatestScan,
 } from "../services/repo-dependency.service";
-import { depScanQueue } from "../lib/bullmq";
+import { depScanQueue } from "../lib/queue";
 import { childLogger } from "../lib/logger";
 
 const log = childLogger({ module: "repository-dependency-routes" });

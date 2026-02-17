@@ -45,3 +45,6 @@ package-lock.json
 
 .DS_Store
 .env
+
+# bunqueue data
+/data

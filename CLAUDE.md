@@ -18,9 +18,9 @@ Assembly Lime is a multi-tenant software factory dashboard where PM/Dev/QA colla
 - **API framework:** Elysia (Bun-native)
 - **Frontend:** React + Vite + Tailwind + Radix UI, drag/drop via `@dnd-kit`
 - **Database:** PostgreSQL 16 via Drizzle ORM
-- **Queue:** BullMQ + Redis
-- **Auth:** GitHub OAuth + session cookies (GitHub App later)
-- **Realtime:** WebSocket (Bun-native) + Redis pub/sub
+- **Queue:** bunqueue (Bun-native SQLite queue, BullMQ-compatible API)
+- **Auth:** GitHub OAuth + PostgreSQL session cookies (GitHub App later)
+- **Realtime:** WebSocket (Bun-native) + HTTP POST callbacks (workers → API)
 - **Logging:** pino with request IDs and run IDs
 
 ## Target Monorepo Layout
@@ -90,6 +90,7 @@ All tenant-scoped. Full schema in `assembly-lime-poc-plan-v2.md` section 5.
 **Connectors:** connectors, repositories, webhooks
 **Features (v3):** features, feature_repository_map, feature_aliases, repository_aliases, project_repositories
 **Agent:** agent_runs, agent_events, code_diffs, audit_log
+**Auth:** sessions
 **Config:** hooks, custom_instructions, default_agent_instructions, default_agent_tools
 **Infra:** build_pipelines, pipeline_runs, deployment_targets, deployments, deployment_steps
 **Security:** api_keys, env_var_sets, env_vars, project_budgets
@@ -105,10 +106,12 @@ Shared types live in `packages/shared/src/protocol.ts`:
 ## Agent Data Flow
 
 1. UI requests agent run: `POST /agent-runs`
-2. API creates `agent_runs` row, enqueues job in Redis (BullMQ)
-3. Worker pulls job, clones repo, runs agent, emits streaming `agent_events`
+2. API creates `agent_runs` row, enqueues job via bunqueue (SQLite-backed)
+3. Worker pulls job, clones repo, runs agent, emits streaming `agent_events` via `POST /internal/agent-events/:runId`
 4. API persists events + broadcasts to UI via WebSocket
 5. On completion: store diff in `code_diffs`, artifacts, PR link, test results
+
+**No Redis dependency.** Queue persistence uses bunqueue (Bun-native SQLite). Worker-to-API event streaming uses HTTP POST with `x-internal-key` auth. Sessions stored in PostgreSQL `sessions` table.
 
 ## Instruction Resolution Order
 
@@ -144,7 +147,10 @@ Fallback when feature not found: use `project_repositories` and match repo roles
 
 ```
 DATABASE_URL=postgres://...
-REDIS_URL=redis://...
+BUNQUEUE_HOST=localhost
+BUNQUEUE_PORT=6789
+API_BASE_URL=http://localhost:3434
+INTERNAL_AGENT_API_KEY=...         # openssl rand -hex 32
 GITHUB_CLIENT_ID=...
 GITHUB_CLIENT_SECRET=...
 OPENAI_API_KEY=...
@@ -166,6 +172,8 @@ bun db:seed          # Seed dev data
 **Ports:**
 - `3434` — API (Bun + Elysia)
 - `5173` — Frontend (Vite dev server, proxies `/api` → `:3434`)
+- `6789` — bunqueue TCP server
+- `6790` — bunqueue HTTP API (queue monitoring)
 
 ## Reference Documents
 

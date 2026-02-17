@@ -6,7 +6,10 @@ const K8S_NAMESPACE = process.env.K8S_NAMESPACE ?? "assembly-lime";
 const K8S_AGENT_IMAGE =
   process.env.K8S_AGENT_IMAGE_CODEX ??
   "ghcr.io/assembly-lime/agent-codex:latest";
-const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
+const API_BASE_URL = process.env.API_BASE_URL ?? "http://localhost:3434";
+const INTERNAL_AGENT_API_KEY = process.env.INTERNAL_AGENT_API_KEY ?? "";
+const BUNQUEUE_HOST = process.env.BUNQUEUE_HOST ?? "localhost";
+const BUNQUEUE_PORT = process.env.BUNQUEUE_PORT ?? "6789";
 
 export async function launchK8sJob(payload: AgentJobPayload): Promise<void> {
   const kc = new k8s.KubeConfig();
@@ -54,7 +57,10 @@ export async function launchK8sJob(payload: AgentJobPayload): Promise<void> {
               },
               env: [
                 { name: "AGENT_JOB_PAYLOAD", value: encodedPayload },
-                { name: "REDIS_URL", value: REDIS_URL },
+                { name: "API_BASE_URL", value: API_BASE_URL },
+                { name: "INTERNAL_AGENT_API_KEY", value: INTERNAL_AGENT_API_KEY },
+                { name: "BUNQUEUE_HOST", value: BUNQUEUE_HOST },
+                { name: "BUNQUEUE_PORT", value: BUNQUEUE_PORT },
                 {
                   name: "OPENAI_API_KEY",
                   valueFrom: {
