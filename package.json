@@ -11,7 +11,7 @@
     "build:web": "cd apps/web && bun run build",
     "build:worker-claude": "NODE_ENV=production bun build apps/worker-claude/src/main.ts --outdir dist/worker-claude --target bun --minify",
     "build:worker-codex": "NODE_ENV=production bun build apps/worker-codex/src/main.ts --outdir dist/worker-codex --target bun --minify",
-    "start": "pm2 start ecosystem.config.cjs",
+    "start": "pm2-runtime start ecosystem.config.cjs",
     "start:api": "NODE_ENV=production bun apps/api/src/index.ts",
     "start:worker-claude": "bun dist/worker-claude/main.js",
     "start:worker-codex": "bun dist/worker-codex/main.js",
