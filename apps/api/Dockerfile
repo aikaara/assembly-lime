@@ -6,11 +6,15 @@ WORKDIR /app
 # Copy workspace root manifests
 COPY package.json bun.lock ./
 
-# Copy workspace package.json files so Bun resolves workspaces
+# Copy ALL workspace package.json files so frozen lockfile resolves
 COPY apps/api/package.json apps/api/package.json
+COPY apps/web/package.json apps/web/package.json
+COPY apps/worker-claude/package.json apps/worker-claude/package.json
+COPY apps/worker-codex/package.json apps/worker-codex/package.json
+COPY apps/trigger/package.json apps/trigger/package.json
 COPY packages/shared/package.json packages/shared/package.json
 
-RUN bun install --frozen-lockfile --production
+RUN bun install --frozen-lockfile
 
 # Stage 2 — Runtime
 FROM oven/bun:1-slim

@@ -7,11 +7,12 @@ node_modules
 dist
 .trigger
 
-# Non-API apps
-apps/web
-apps/worker-claude
-apps/worker-codex
-apps/trigger
+# Non-API app source (keep package.json for lockfile resolution)
+apps/web/src
+apps/web/public
+apps/worker-claude/src
+apps/worker-codex/src
+apps/trigger/src
 
 # Dev tooling
 .vscode
