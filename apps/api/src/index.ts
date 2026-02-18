@@ -13,6 +13,7 @@ import { previewDeploymentRoutes } from "./routes/preview-deployments";
 import { connectorRoutes } from "./routes/connectors";
 import { repositoryRoutes } from "./routes/repositories";
 import { projectRepoRoutes } from "./routes/project-repos";
+import { projectRunRoutes } from "./routes/project-runs";
 import { sandboxRoutes } from "./routes/sandboxes";
 import { k8sClusterRoutes } from "./routes/k8s-clusters";
 import { domainRoutes } from "./routes/domains";
@@ -52,6 +53,7 @@ const app = new Elysia()
   .use(connectorRoutes(db))
   .use(repositoryRoutes(db))
   .use(projectRepoRoutes(db))
+  .use(projectRunRoutes(db))
   .use(sandboxRoutes(db))
   .use(k8sClusterRoutes(db))
   .use(domainRoutes(db))

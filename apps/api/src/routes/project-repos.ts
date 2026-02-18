@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import { eq, and } from "drizzle-orm";
 import type { Db } from "@assembly-lime/shared/db";
-import { projectRepositories } from "@assembly-lime/shared/db/schema";
+import { projectRepositories, repositories } from "@assembly-lime/shared/db/schema";
 import { requireAuth } from "../middleware/auth";
 import { childLogger } from "../lib/logger";
 
@@ -14,8 +14,24 @@ export function projectRepoRoutes(db: Db) {
       "/",
       async ({ auth, params }) => {
         const rows = await db
-          .select()
+          .select({
+            id: projectRepositories.id,
+            projectId: projectRepositories.projectId,
+            repositoryId: projectRepositories.repositoryId,
+            repoRole: projectRepositories.repoRole,
+            isPrimary: projectRepositories.isPrimary,
+            uatBranch: projectRepositories.uatBranch,
+            prodBranch: projectRepositories.prodBranch,
+            notes: projectRepositories.notes,
+            createdAt: projectRepositories.createdAt,
+            repoOwner: repositories.owner,
+            repoName: repositories.name,
+            repoFullName: repositories.fullName,
+            cloneUrl: repositories.cloneUrl,
+            defaultBranch: repositories.defaultBranch,
+          })
           .from(projectRepositories)
+          .innerJoin(repositories, eq(projectRepositories.repositoryId, repositories.id))
           .where(
             and(
               eq(projectRepositories.tenantId, auth!.tenantId),
@@ -32,6 +48,11 @@ export function projectRepoRoutes(db: Db) {
           prodBranch: r.prodBranch,
           notes: r.notes,
           createdAt: r.createdAt.toISOString(),
+          repoOwner: r.repoOwner,
+          repoName: r.repoName,
+          repoFullName: r.repoFullName,
+          cloneUrl: r.cloneUrl,
+          defaultBranch: r.defaultBranch,
         }));
       },
       { params: t.Object({ id: t.String() }) }

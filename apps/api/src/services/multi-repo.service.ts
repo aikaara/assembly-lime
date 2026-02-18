@@ -10,8 +10,11 @@ import { childLogger } from "../lib/logger";
 
 const log = childLogger({ module: "multi-repo-service" });
 
-type RepoInfo = {
+export type RepoInfo = {
   repositoryId: number;
+  connectorId: number;
+  owner: string;
+  name: string;
   cloneUrl: string;
   defaultBranch: string;
 };
@@ -27,6 +30,9 @@ export async function resolveReposForRun(
     const mapped = await db
       .select({
         repositoryId: featureRepositoryMap.repositoryId,
+        connectorId: repositories.connectorId,
+        owner: repositories.owner,
+        name: repositories.name,
         cloneUrl: repositories.cloneUrl,
         defaultBranch: repositories.defaultBranch,
       })
@@ -46,6 +52,9 @@ export async function resolveReposForRun(
   const projRepos = await db
     .select({
       repositoryId: projectRepositories.repositoryId,
+      connectorId: repositories.connectorId,
+      owner: repositories.owner,
+      name: repositories.name,
       cloneUrl: repositories.cloneUrl,
       defaultBranch: repositories.defaultBranch,
     })
@@ -58,7 +67,27 @@ export async function resolveReposForRun(
       )
     );
 
-  return projRepos;
+  if (projRepos.length > 0) return projRepos;
+
+  // Final fallback: all tenant repos (when project has no explicit repo links)
+  const tenantRepos = await db
+    .select({
+      repositoryId: repositories.id,
+      connectorId: repositories.connectorId,
+      owner: repositories.owner,
+      name: repositories.name,
+      cloneUrl: repositories.cloneUrl,
+      defaultBranch: repositories.defaultBranch,
+    })
+    .from(repositories)
+    .where(
+      and(
+        eq(repositories.tenantId, tenantId),
+        eq(repositories.isEnabled, true)
+      )
+    );
+
+  return tenantRepos;
 }
 
 export async function createMultiRepoRun(

@@ -22,16 +22,21 @@ export function CommandCenterPage() {
     prompt: string,
     provider: AgentProviderId,
     mode: AgentMode,
+    repositoryId?: number,
   ) {
     if (!projectId) return;
     setSubmitting(true);
     try {
-      const run = await api.post<AgentRunCreateResponse>("/agent-runs/", {
+      const body: Record<string, unknown> = {
         projectId: Number(projectId),
         provider,
         mode,
         prompt,
-      });
+      };
+      if (repositoryId) {
+        body.repositoryId = repositoryId;
+      }
+      const run = await api.post<AgentRunCreateResponse>("/agent-runs/", body);
       setActiveRunId(run.id);
       addRunId(run.id);
     } catch (err) {
@@ -43,7 +48,7 @@ export function CommandCenterPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <PromptPanel onSubmit={handleSubmit} disabled={submitting || !projectId} />
+      <PromptPanel onSubmit={handleSubmit} disabled={submitting || !projectId} projectId={projectId} />
       <TranscriptPanel events={events} connectionState={connectionState} />
     </div>
   );

@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import * as Select from "@radix-ui/react-select";
-import { ChevronDown, Check, Send } from "lucide-react";
-import type { AgentProviderId, AgentMode } from "../../types";
+import { ChevronDown, Check, Send, GitBranch } from "lucide-react";
+import type { AgentProviderId, AgentMode, ProjectRepository } from "../../types";
+import { api } from "../../lib/api";
 
 const MODES: { value: AgentMode; label: string }[] = [
   { value: "plan", label: "Plan" },
@@ -59,20 +60,38 @@ function SelectField<T extends string>({
 export function PromptPanel({
   onSubmit,
   disabled,
+  projectId,
 }: {
-  onSubmit: (prompt: string, provider: AgentProviderId, mode: AgentMode) => void;
+  onSubmit: (prompt: string, provider: AgentProviderId, mode: AgentMode, repositoryId?: number) => void;
   disabled?: boolean;
+  projectId: string | null;
 }) {
   const [prompt, setPrompt] = useState("");
   const [provider, setProvider] = useState<AgentProviderId>("claude");
   const [mode, setMode] = useState<AgentMode>("plan");
+  const [selectedRepoId, setSelectedRepoId] = useState<string>("auto");
+  const [repos, setRepos] = useState<ProjectRepository[]>([]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    api
+      .get<ProjectRepository[]>(`/projects/${projectId}/repositories`)
+      .then(setRepos)
+      .catch(() => setRepos([]));
+  }, [projectId]);
 
   function handleSubmit() {
     const text = prompt.trim();
     if (!text || disabled) return;
-    onSubmit(text, provider, mode);
+    const repoId = selectedRepoId !== "auto" ? Number(selectedRepoId) : undefined;
+    onSubmit(text, provider, mode, repoId);
     setPrompt("");
   }
+
+  const repoItems = [
+    { value: "auto", label: "Auto-detect" },
+    ...repos.map((r) => ({ value: r.repositoryId, label: r.repoFullName })),
+  ];
 
   return (
     <div className="border-b border-zinc-800 px-6 py-6">
@@ -123,6 +142,15 @@ export function PromptPanel({
           items={PROVIDERS}
           placeholder="Provider"
         />
+
+        {repos.length > 0 && (
+          <SelectField
+            value={selectedRepoId}
+            onValueChange={setSelectedRepoId}
+            items={repoItems}
+            placeholder="Repository"
+          />
+        )}
 
         <div className="flex-1" />
 

@@ -15,6 +15,7 @@ import { getConnector, getConnectorToken } from "./connector.service";
 import { getDecryptedEnvVars } from "./env-var.service";
 import { tenantNamespace, ensureGitCredentialSecret } from "./namespace-provisioner.service";
 import { launchAgentK8sJob } from "./k8s-job-launcher.service";
+import { resolveReposForRun, type RepoInfo } from "./multi-repo.service";
 import { logger } from "../lib/logger";
 
 type CreateRunInput = {
@@ -80,7 +81,39 @@ export async function createAgentRun(db: Db, input: CreateRunInput) {
 
   if (!run) throw new Error("Failed to create agent run");
 
-  // 4. Build job payload
+  // 4. Auto-resolve repos when not provided (Daytona sandbox mode)
+  const sandboxProvider = process.env.SANDBOX_PROVIDER?.toLowerCase();
+  let resolvedRepos: RepoInfo[] | undefined;
+
+  if (!input.repo && sandboxProvider === "daytona") {
+    resolvedRepos = await resolveReposForRun(db, input.tenantId, input.projectId);
+    if (resolvedRepos.length === 0) {
+      throw new Error("No repositories linked to this project — cannot run agent without a sandbox");
+    }
+    if (resolvedRepos.length === 1) {
+      // Single repo — promote to input.repo for standard single-repo path
+      const r = resolvedRepos[0]!;
+      input.repo = {
+        repositoryId: r.repositoryId,
+        connectorId: r.connectorId,
+        owner: r.owner,
+        name: r.name,
+        cloneUrl: r.cloneUrl,
+        defaultBranch: r.defaultBranch,
+      };
+      logger.info(
+        { runId: run.id, repoId: r.repositoryId, repoName: `${r.owner}/${r.name}` },
+        "auto-resolved single repo for run",
+      );
+    } else {
+      logger.info(
+        { runId: run.id, repoCount: resolvedRepos.length },
+        "auto-resolved multiple repos for run",
+      );
+    }
+  }
+
+  // 5. Build job payload
   const payload: AgentJobPayload = {
     runId: run.id,
     tenantId: input.tenantId,
@@ -102,15 +135,24 @@ export async function createAgentRun(db: Db, input: CreateRunInput) {
           allowedPaths: input.repo.allowedPaths,
         }
       : undefined,
+    // Multi-repo: only set when multiple repos were auto-resolved
+    repos: resolvedRepos && resolvedRepos.length > 1
+      ? resolvedRepos.map((r) => ({
+          repositoryId: r.repositoryId,
+          cloneUrl: r.cloneUrl,
+          defaultBranch: r.defaultBranch,
+        }))
+      : undefined,
     constraints: input.constraints,
     images: input.images,
   };
 
   // Enrich repo auth token for Daytona before dispatching (if needed)
-  if (payload.repo && process.env.SANDBOX_PROVIDER?.toLowerCase() === "daytona") {
+  if (payload.repo && sandboxProvider === "daytona") {
     try {
-      if (input.repo?.connectorId) {
-        const connector = await getConnector(db, input.tenantId, input.repo.connectorId);
+      const connId = input.repo?.connectorId ?? payload.repo.connectorId;
+      if (connId) {
+        const connector = await getConnector(db, input.tenantId, connId);
         if (connector) {
           payload.repo.authToken = getConnectorToken(connector);
         }
@@ -118,11 +160,9 @@ export async function createAgentRun(db: Db, input: CreateRunInput) {
     } catch {}
   }
 
-  // 5. Dispatch: Daytona (if SANDBOX_PROVIDER=daytona) → K8s → bunqueue
-  const sandboxProvider = process.env.SANDBOX_PROVIDER?.toLowerCase();
-
+  // 6. Dispatch: Daytona (if SANDBOX_PROVIDER=daytona) → K8s → bunqueue
   // Daytona path: always bunqueue, worker creates the sandbox
-  if (sandboxProvider === "daytona" && payload.repo) {
+  if (sandboxProvider === "daytona" && (payload.repo || (payload.repos && payload.repos.length > 0))) {
     payload.sandbox = { provider: "daytona" };
     // Decrypt env vars if an env var set is specified
     if (input.envVarSetId) {

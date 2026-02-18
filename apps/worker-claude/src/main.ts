@@ -32,8 +32,12 @@ if (encodedPayload) {
   if (workspaceDir && payload.repo) {
     logger.info({ workspaceDir }, "routing to workspace agent");
     await runWorkspaceAgent(payload, emitter);
-  } else {
+  } else if (payload.repo) {
     await runClaudeAgent(payload, emitter);
+  } else {
+    await emitter.emitError("No repository specified — cannot run agent without a sandbox");
+    await emitter.emitStatus("failed", "No repository specified");
+    logger.error({ runId: payload.runId }, "K8s job rejected: no repo specified");
   }
   process.exit(0);
 }
@@ -76,7 +80,16 @@ const worker = new Worker<AgentJobPayload>(
       return;
     }
 
-    // Direct execution mode (dev)
+    // Guard: never run without a sandbox/repo — prevents agents from touching local files
+    if (!payload.repo && (!payload.repos || payload.repos.length === 0)) {
+      const emitter = new AgentEventEmitter(payload.runId);
+      await emitter.emitError("No repository specified — cannot run agent without a sandbox");
+      await emitter.emitStatus("failed", "No repository specified");
+      log.error({ runId: payload.runId }, "rejected run: no repo/sandbox specified");
+      return;
+    }
+
+    // Direct execution mode (dev) — repo is guaranteed to exist at this point
     const emitter = new AgentEventEmitter(payload.runId);
     if (payload.repos && payload.repos.length > 0) {
       await runClaudeAgentMultiRepo(payload, emitter);

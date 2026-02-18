@@ -151,6 +151,21 @@ export type Ticket = {
   assignee?: string;
 };
 
+// ── Project Repository types ────────────────────────────────────────
+
+export type ProjectRepository = {
+  id: string;
+  projectId: string;
+  repositoryId: string;
+  repoRole: number;
+  isPrimary: boolean;
+  repoOwner: string;
+  repoName: string;
+  repoFullName: string;
+  cloneUrl: string;
+  defaultBranch: string;
+};
+
 // ── Repository types ────────────────────────────────────────────────
 
 export type Repository = {

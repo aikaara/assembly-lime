@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Play } from "lucide-react";
-import { useRecentRuns } from "../hooks/useRecentRuns";
+import { useAuth } from "../hooks/useAuth";
 import { api } from "../lib/api";
 import type { AgentRunDetailResponse } from "../types";
 import { StatusDot } from "../components/ui/StatusDot";
@@ -9,30 +9,24 @@ import { Badge } from "../components/ui/Badge";
 import { EmptyState } from "../components/ui/EmptyState";
 
 export function AgentRunsPage() {
-  const { recentRunIds } = useRecentRuns();
+  const auth = useAuth();
   const [runs, setRuns] = useState<AgentRunDetailResponse[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const projectId =
+    auth.status === "authenticated" ? auth.currentProjectId : null;
 
   useEffect(() => {
-    if (recentRunIds.length === 0) return;
+    if (!projectId) return;
     setLoading(true);
-
-    Promise.all(
-      recentRunIds.map((id) =>
-        api
-          .get<AgentRunDetailResponse>(`/agent-runs/${id}`)
-          .catch(() => null),
-      ),
-    )
-      .then((results) => {
-        setRuns(
-          results.filter((r): r is AgentRunDetailResponse => r !== null),
-        );
-      })
+    api
+      .get<AgentRunDetailResponse[]>(`/projects/${projectId}/runs/`)
+      .then(setRuns)
+      .catch(() => setRuns([]))
       .finally(() => setLoading(false));
-  }, [recentRunIds]);
+  }, [projectId]);
 
-  if (recentRunIds.length === 0) {
+  if (!loading && runs.length === 0) {
     return (
       <div className="p-6">
         <EmptyState
