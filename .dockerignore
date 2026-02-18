@@ -1,0 +1,19 @@
+node_modules
+.git
+.gitignore
+.env
+.env.*
+*.md
+dist
+.trigger
+
+# Non-API apps
+apps/web
+apps/worker-claude
+apps/worker-codex
+apps/trigger
+
+# Dev tooling
+.vscode
+.idea
+*.log
