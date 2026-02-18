@@ -1,0 +1,25 @@
+import pino from "pino";
+
+let transport: pino.TransportSingleOptions | undefined;
+if (process.env.NODE_ENV !== "production") {
+  try {
+    require.resolve("pino-pretty");
+    transport = {
+      target: "pino-pretty",
+      options: {
+        colorize: true,
+        singleLine: true,
+        translateTime: "HH:MM:ss",
+        ignore: "pid,hostname",
+      },
+    };
+  } catch {
+    // pino-pretty not resolvable (e.g. Trigger.dev worker) — use default JSON output
+  }
+}
+
+export const logger = pino({
+  name: "worker-agent",
+  level: process.env.LOG_LEVEL ?? "info",
+  transport,
+});

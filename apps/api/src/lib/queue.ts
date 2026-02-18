@@ -15,17 +15,24 @@ configure({ accessToken: process.env.TRIGGER_SECRET_KEY });
 
 // ── Agent dispatch ──────────────────────────────────────────────────
 
+const USE_UNIFIED_AGENT = process.env.USE_UNIFIED_AGENT === "true";
+
 export async function dispatchAgentRun(
   provider: "claude" | "codex",
   runId: number,
   payload: AgentJobPayload,
 ) {
-  const taskId = provider === "claude" ? "claude-agent" : "codex-agent";
+  let taskId: string;
+  if (USE_UNIFIED_AGENT) {
+    taskId = "agent-task";
+  } else {
+    taskId = provider === "claude" ? "claude-agent" : "codex-agent";
+  }
   const handle = await tasks.trigger(taskId, payload, {
     idempotencyKey: `run-${runId}`,
   });
   log.info(
-    { runId, provider, triggerRunId: handle.id },
+    { runId, provider, taskId, triggerRunId: handle.id },
     "agent run dispatched to Trigger.dev",
   );
   return handle;

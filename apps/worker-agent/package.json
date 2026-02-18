@@ -1,0 +1,13 @@
+{
+  "name": "@assembly-lime/worker-agent",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@assembly-lime/pi-ai": "workspace:*",
+    "@assembly-lime/pi-agent": "workspace:*",
+    "@assembly-lime/shared": "workspace:*",
+    "@sinclair/typebox": "^0.34.41",
+    "pino": "^9.6.0"
+  }
+}

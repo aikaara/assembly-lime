@@ -311,22 +311,31 @@ apps/worker-agent/
             ├─ ajv + ajv-formats        (npm — tool arg validation)
             └─ partial-json             (npm — streaming JSON parse)
   └─ @assembly-lime/shared     (workspace:* → packages/shared/src/)
-  └─ bunqueue                  (npm — SQLite-backed job queue client)
   └─ pino                      (npm — logging)
 ```
 
-**No Redis.** Queue uses bunqueue (SQLite-backed, BullMQ-compatible API). Event streaming uses HTTP POST to `POST /internal/agent-events/:runId` with `x-internal-key` auth. Provider SDKs (`@anthropic-ai/sdk`, `openai`) are still npm dependencies — they're HTTP clients for the LLM APIs. The agent framework code itself is fully vendored source.
+**No Redis. No local queue.** Jobs dispatched via Trigger.dev v3 (`tasks.trigger()` from API). Worker code runs inside Trigger.dev tasks (cloud-managed containers, `maxDuration: 3600`). Event streaming uses HTTP POST to `POST /internal/agent-events/:runId` with `x-internal-key` auth. Provider SDKs (`@anthropic-ai/sdk`, `openai`) are still npm dependencies — they're HTTP clients for the LLM APIs. The agent framework code itself is fully vendored source.
 
 ---
 
-## New Worker: `apps/worker-agent/`
+## New Worker: Trigger.dev Task + `apps/worker-agent/`
+
+The pi-agent worker follows the same pattern as the existing `claude-agent` / `codex-agent` tasks:
+- **Task definition** lives in `apps/trigger/agent-task.ts` — the Trigger.dev entry point
+- **Implementation code** lives in `apps/worker-agent/src/` — imported by the task
 
 ### Structure
 
 ```
+apps/trigger/
+├── agent-task.ts                  # Trigger.dev task definition (entry point)
+├── claude-agent.ts                # (existing — will be deprecated)
+├── codex-agent.ts                 # (existing — will be deprecated)
+└── dep-scan.ts                    # (existing — keep)
+
 apps/worker-agent/
 ├── src/
-│   ├── main.ts                    # bunqueue consumer + dispatcher
+│   ├── run.ts                     # Main run function imported by Trigger.dev task
 │   ├── lib/
 │   │   └── logger.ts              # Pino logger
 │   ├── agent/
@@ -356,25 +365,43 @@ apps/worker-agent/
 └── tsconfig.json
 ```
 
+### apps/trigger/agent-task.ts (Trigger.dev task definition)
+
+```typescript
+import { task, logger } from "@trigger.dev/sdk/v3";
+import type { AgentJobPayload } from "@assembly-lime/shared";
+import { runPiAgent } from "../worker-agent/src/run";
+
+export const agentTask = task({
+  id: "agent-task",
+  maxDuration: 3600,
+  retry: { maxAttempts: 1 },
+  run: async (payload: AgentJobPayload) => {
+    logger.info("processing pi-agent job", {
+      runId: payload.runId,
+      provider: payload.provider,
+      mode: payload.mode,
+    });
+    await runPiAgent(payload);
+  },
+});
+```
+
 ### apps/worker-agent/package.json
 
 ```json
 {
   "name": "@assembly-lime/worker-agent",
   "version": "0.0.0",
-  "module": "src/main.ts",
+  "module": "src/run.ts",
   "type": "module",
   "private": true,
-  "scripts": {
-    "dev": "bun run --env-file ../../.env --watch src/main.ts"
-  },
   "dependencies": {
     "@assembly-lime/shared": "workspace:*",
     "@assembly-lime/pi-ai": "workspace:*",
     "@assembly-lime/pi-agent": "workspace:*",
     "@daytonaio/sdk": "^0.143.0",
     "@kubernetes/client-node": "^1.0.0",
-    "bunqueue": "latest",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0"
   },
@@ -382,6 +409,30 @@ apps/worker-agent/
     "@types/bun": "latest"
   }
 }
+```
+
+### trigger.config.ts changes
+
+Add pi-ai/pi-agent dependencies to the build extensions so Trigger.dev bundles them:
+
+```typescript
+// trigger.config.ts
+build: {
+  extensions: [
+    additionalPackages({
+      packages: [
+        "@assembly-lime/pi-ai",        // ← new
+        "@assembly-lime/pi-agent",      // ← new
+        "@daytonaio/sdk",
+        "@kubernetes/client-node",
+        "pino",
+        "pino-pretty",
+        // Note: @anthropic-ai/sdk and openai are deps of pi-ai, bundled transitively
+      ],
+    }),
+  ],
+},
+dirs: ["apps/trigger"],  // unchanged — agent-task.ts auto-discovered
 ```
 
 ### Core: Agent Factory (`agent/factory.ts`)
@@ -829,23 +880,39 @@ ALTER TABLE agent_runs ADD COLUMN followup_count INTEGER DEFAULT 0;
 
 ## Queue Changes
 
-### Single Queue via bunqueue (Replaces Two)
+### Single Trigger.dev Task (Replaces Two)
+
+Dispatch uses the existing `tasks.trigger()` pattern from `apps/api/src/lib/queue.ts`:
 
 ```typescript
-import { Queue, Worker } from "bunqueue/client";
+import { tasks } from "@trigger.dev/sdk/v3";
 
-const connection = {
-  host: process.env.BUNQUEUE_HOST ?? "localhost",
-  port: Number(process.env.BUNQUEUE_PORT) || 6789,
-};
+// Before: two separate task IDs
+tasks.trigger("claude-agent", payload, { idempotencyKey: `run-${runId}` });
+tasks.trigger("codex-agent",  payload, { idempotencyKey: `run-${runId}` });
 
-// Before: two separate queues
-QUEUE_AGENT_RUNS_CLAUDE = "agent-runs-claude"
-QUEUE_AGENT_RUNS_CODEX  = "agent-runs-codex"
+// After: single task ID, provider is in payload
+tasks.trigger("agent-task", payload, { idempotencyKey: `run-${runId}` });
+```
 
-// After: single queue, provider is in payload
-QUEUE_AGENT_RUNS = "agent-runs"
-const agentQueue = new Queue<AgentJobPayload>(QUEUE_AGENT_RUNS, { connection });
+Updated dispatch in `apps/api/src/lib/queue.ts`:
+
+```typescript
+export async function dispatchAgentRun(
+  provider: AgentProviderId,  // "claude" | "codex" | "gemini" | "bedrock"
+  runId: number,
+  payload: AgentJobPayload,
+) {
+  // All providers go through the single pi-agent task
+  const handle = await tasks.trigger("agent-task", payload, {
+    idempotencyKey: `run-${runId}`,
+  });
+  log.info(
+    { runId, provider, triggerRunId: handle.id },
+    "agent run dispatched to Trigger.dev",
+  );
+  return handle;
+}
 ```
 
 ### Steering via HTTP (No Redis pub/sub)
@@ -859,11 +926,22 @@ POST /agent-runs/:id/steer          — UI/user pushes steering message
 ### Environment Variables
 
 ```
-BUNQUEUE_HOST=localhost              # bunqueue TCP server
-BUNQUEUE_PORT=6789                   # bunqueue TCP port
+TRIGGER_SECRET_KEY=...               # Trigger.dev access token (API + task runtime)
 API_BASE_URL=http://localhost:3434   # For worker → API HTTP callbacks
 INTERNAL_AGENT_API_KEY=...           # Shared secret for x-internal-key auth
 ```
+
+### Development Workflow
+
+```bash
+# Terminal 1: API + web + existing workers
+bun dev:all
+
+# Terminal 2: Trigger.dev dev server (runs tasks locally)
+bun trigger:dev
+```
+
+The `bun trigger:dev` command connects to Trigger.dev cloud, discovers task definitions in `apps/trigger/`, and executes them locally when dispatched.
 
 ---
 
@@ -930,7 +1008,7 @@ const TOOLS_BY_MODE: Record<AgentMode, string[]> = {
 11. `bun install` — workspace resolution picks up both packages
 12. Verify: `bun run -e "import { getModel } from '@assembly-lime/pi-ai'; console.log(getModel('anthropic', 'claude-sonnet-4-5-20250929'))"`
 
-### Phase 2: Build worker-agent (Parallel to Existing Workers)
+### Phase 2: Build worker-agent + Trigger.dev Task (Parallel to Existing Tasks)
 
 1. Create `apps/worker-agent/` with structure shown above
 2. Build event bridge (pi events → assemblyLime events → HTTP POST `/internal/agent-events/:runId`)
@@ -939,9 +1017,10 @@ const TOOLS_BY_MODE: Record<AgentMode, string[]> = {
 5. Implement git tools: `git_diff`, `git_commit`, `create_pr` (reuse from `worker-claude/src/git/`)
 6. Port post-agent git workflow from `workspace-runner.ts` (diff → commit → push → PR)
 7. Port tool allowlisting per mode from `claude-runner.ts` (`plan` = read-only, `implement` = full)
-8. Wire up bunqueue `Worker` consumer on `agent-runs` queue
-9. Test with local/direct execution mode — verify parity with Agent SDK output
-10. Old workers continue running on old queues — zero downtime
+8. Create `apps/trigger/agent-task.ts` — Trigger.dev task definition that imports `runPiAgent()` from `apps/worker-agent/src/run.ts`
+9. Update `trigger.config.ts` build extensions to bundle `@assembly-lime/pi-ai` and `@assembly-lime/pi-agent`
+10. Test with local/direct execution mode via `bun trigger:dev` — verify parity with Agent SDK output
+11. Old tasks (`claude-agent`, `codex-agent`) continue running — zero downtime
 
 ### Phase 3: CI/CF Feedback Loop
 
@@ -959,13 +1038,14 @@ const TOOLS_BY_MODE: Record<AgentMode, string[]> = {
 4. Port dev server + preview workflow from `daytona-workspace-runner.ts` (`startDevServerAndPreview`)
 5. Port sandbox registration from `daytona-workspace-runner.ts` (`POST /sandboxes/register-internal`)
 
-### Phase 5: Deprecate Old Workers
+### Phase 5: Deprecate Old Workers + Tasks
 
-1. Route all new runs to `agent-runs` queue
-2. Drain old queues (keep old workers alive until empty)
-3. Remove `apps/worker-claude/` and `apps/worker-codex/`
-4. Remove `@anthropic-ai/claude-agent-sdk`, `@anthropic-ai/sdk`, and `openai` from worker deps (pi-ai handles all providers)
-5. Update root `package.json` build scripts and `ecosystem.config.cjs` PM2 config
+1. Update `dispatchAgentRun()` in `apps/api/src/lib/queue.ts` to route all providers to `"agent-task"` instead of `"claude-agent"` / `"codex-agent"`
+2. Let in-flight old tasks complete (Trigger.dev handles graceful drain)
+3. Remove `apps/trigger/claude-agent.ts` and `apps/trigger/codex-agent.ts`
+4. Remove `apps/worker-claude/` and `apps/worker-codex/`
+5. Remove `@anthropic-ai/claude-agent-sdk` from `trigger.config.ts` build extensions
+6. Update root `package.json` build scripts
 
 ---
 
@@ -1010,4 +1090,4 @@ worker-claude's Agent SDK migration was a step in the right direction (real agen
 - **Streaming visibility** — `tool_execution_start/update/end` events per tool call (Agent SDK = opaque)
 - **Thinking control** — tune reasoning budget per mode/model (Agent SDK = no knobs)
 - **Full ownership** — source is in our repo, modify at will, no SDK version drift
-- **Zero infra changes** — bunqueue (SQLite) + HTTP POST → Postgres + WebSocket all unchanged
+- **Zero infra changes** — Trigger.dev (managed cloud) + HTTP POST → Postgres + WebSocket all unchanged

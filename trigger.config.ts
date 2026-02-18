@@ -15,15 +15,21 @@ export default defineConfig({
   },
   dirs: ["apps/trigger"],
   build: {
+    external: ["pino", "pino-pretty"],
     extensions: [
       additionalPackages({
         packages: [
           "@anthropic-ai/claude-agent-sdk",
+          "@anthropic-ai/sdk",
           "@daytonaio/sdk",
           "@kubernetes/client-node",
+          "@sinclair/typebox",
+          "ajv",
+          "ajv-formats",
+          "openai",
+          "partial-json",
           "pino",
           "pino-pretty",
-          "openai",
         ],
       }),
     ],
