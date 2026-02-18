@@ -1,7 +1,7 @@
+console.log("[BOOT] TRIGGER_SECRET_KEY present:", !!process.env.TRIGGER_SECRET_KEY, process.env.TRIGGER_SECRET_KEY?.slice(0, 10));
 import { Elysia } from "elysia";
 import { db } from "./db";
 import { logger } from "./lib/logger";
-import { startDepScanWorker } from "./lib/queue";
 import { initSessionStore, pruneExpiredSessions } from "./lib/session";
 import { authRoutes } from "./routes/auth";
 import { meRoutes } from "./routes/me";
@@ -22,7 +22,6 @@ import { repositoryDependencyRoutes } from "./routes/repository-dependencies";
 import { envVarRoutes } from "./routes/env-vars";
 import { wsRoutes } from "./routes/ws";
 import { internalEventRoutes } from "./routes/internal-events";
-import { scanAllDependencies } from "./services/dependency-scanner.service";
 
 // ── Initialize session store ─────────────────────────────────────────
 initSessionStore(db);
@@ -43,6 +42,11 @@ const app = new Elysia()
     logger.error({ method: request.method, path: url.pathname, err: msg }, "request error");
   })
   .get("/health", () => ({ ok: true }))
+  .get("/debug-env", () => ({
+    hasTriggerKey: !!process.env.TRIGGER_SECRET_KEY,
+    keyPrefix: process.env.TRIGGER_SECRET_KEY?.slice(0, 10) ?? "MISSING",
+    envKeys: Object.keys(process.env).filter(k => k.includes("TRIGGER")),
+  }))
   .use(authRoutes(db))
   .use(meRoutes(db))
   .use(projectRoutes(db))
@@ -68,16 +72,6 @@ logger.info(
   { host: app.server?.hostname, port: app.server?.port },
   "API server started"
 );
-
-// ── Initialize background services AFTER server is listening ─────────
-try {
-  startDepScanWorker(async (tenantId, jobLog, updateProgress) => {
-    await scanAllDependencies(db, tenantId, jobLog, updateProgress);
-  });
-  logger.info("background services initialized");
-} catch (err) {
-  logger.error({ err }, "failed to initialize background services — server is up but queues unavailable");
-}
 
 // ── Prune expired sessions hourly ────────────────────────────────────
 setInterval(async () => {

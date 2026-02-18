@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "bun run --filter '@assembly-lime/api' dev",
     "dev:web": "bun run --filter '@assembly-lime/web' dev",
-    "dev:queue": "bunx bunqueue start",
-    "dev:all": "bun run dev:queue & bun run --filter '*' dev",
+    "dev:all": "bun run --filter '*' dev",
+    "trigger:dev": "npx trigger.dev@4.3.3 dev",
+    "trigger:deploy": "npx trigger.dev@4.3.3 deploy",
     "build": "bun run build:web && bun run build:worker-claude && bun run build:worker-codex",
     "build:web": "cd apps/web && bun run build",
     "build:worker-claude": "NODE_ENV=production bun build apps/worker-claude/src/main.ts --outdir dist/worker-claude --target bun --minify",
@@ -24,16 +25,20 @@
     "db:migrate": "drizzle-kit migrate --config apps/api/drizzle.config.ts",
     "db:push": "drizzle-kit push --config apps/api/drizzle.config.ts",
     "db:studio": "drizzle-kit studio --config apps/api/drizzle.config.ts",
-    "db:seed": "bun run apps/api/src/db/seed.ts"
+    "db:seed": "bun run apps/api/src/db/seed.ts",
+    "db:q": "bun --env-file .env scripts/db-query.ts"
   },
   "devDependencies": {
+    "@trigger.dev/build": "4.3.3",
     "bun-types": "latest",
     "drizzle-kit": "^0.31.9",
     "drizzle-orm": "^0.45.1"
   },
   "dependencies": {
     "@daytonaio/sdk": "^0.143.0",
-    "bunqueue": "^2.4.6",
+    "@trigger.dev/sdk": "4.3.3",
+    "pino": "^9.6.0",
+    "pino-pretty": "^13.0.0",
     "pm2": "^6.0.14",
     "postgres": "^3.4.8"
   }

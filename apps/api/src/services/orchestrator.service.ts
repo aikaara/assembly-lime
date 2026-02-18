@@ -2,7 +2,7 @@ import { eq, and } from "drizzle-orm";
 import type { Db } from "@assembly-lime/shared/db";
 import { agentRuns } from "@assembly-lime/shared/db/schema";
 import type { AgentProviderId, AgentMode, AgentJobPayload } from "@assembly-lime/shared";
-import { getQueueForProvider } from "../lib/queue";
+import { dispatchAgentRun } from "../lib/queue";
 import { childLogger } from "../lib/logger";
 
 const log = childLogger({ module: "orchestrator-service" });
@@ -81,8 +81,7 @@ export async function fanOutSubRuns(
       parentRunId,
     };
 
-    const queue = getQueueForProvider(provider);
-    await queue.add(`run-${run!.id}`, payload, { jobId: `run-${run!.id}` });
+    await dispatchAgentRun(provider, run!.id, payload);
 
     childRuns.push(run!);
   }

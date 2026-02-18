@@ -9,7 +9,7 @@ import type {
 } from "@assembly-lime/shared";
 import { resolvePrompt } from "@assembly-lime/shared/prompts";
 import { resolveInstructionLayers } from "./instruction-resolver";
-import { getQueueForProvider } from "../lib/queue";
+import { dispatchAgentRun } from "../lib/queue";
 import { getClusterClient } from "./k8s-cluster.service";
 import { getConnector, getConnectorToken } from "./connector.service";
 import { getDecryptedEnvVars } from "./env-var.service";
@@ -82,7 +82,8 @@ export async function createAgentRun(db: Db, input: CreateRunInput) {
   if (!run) throw new Error("Failed to create agent run");
 
   // 4. Auto-resolve repos when not provided (Daytona sandbox mode)
-  const sandboxProvider = process.env.SANDBOX_PROVIDER?.toLowerCase();
+  const sandboxProvider = process.env.SANDBOX_PROVIDER?.toLowerCase()
+    || (process.env.DAYTONA_API_KEY ? "daytona" : undefined);
   let resolvedRepos: RepoInfo[] | undefined;
 
   if (!input.repo && sandboxProvider === "daytona") {
@@ -160,8 +161,8 @@ export async function createAgentRun(db: Db, input: CreateRunInput) {
     } catch {}
   }
 
-  // 6. Dispatch: Daytona (if SANDBOX_PROVIDER=daytona) → K8s → bunqueue
-  // Daytona path: always bunqueue, worker creates the sandbox
+  // 6. Dispatch: Daytona (if SANDBOX_PROVIDER=daytona) → K8s → Trigger.dev
+  // Daytona path: always Trigger.dev, worker creates the sandbox
   if (sandboxProvider === "daytona" && (payload.repo || (payload.repos && payload.repos.length > 0))) {
     payload.sandbox = { provider: "daytona" };
     // Decrypt env vars if an env var set is specified
@@ -180,11 +181,10 @@ export async function createAgentRun(db: Db, input: CreateRunInput) {
         logger.warn({ err: e, envVarSetId: input.envVarSetId }, "failed to decrypt env vars for Daytona run");
       }
     }
-    const queue = getQueueForProvider(input.provider);
-    await queue.add(`run-${run.id}`, payload, { jobId: `run-${run.id}` });
+    await dispatchAgentRun(input.provider, run.id, payload);
     logger.info(
       { runId: run.id, provider: input.provider, mode: input.mode, sandbox: "daytona" },
-      "agent run enqueued (Daytona)",
+      "agent run dispatched (Daytona)",
     );
     return run;
   }
@@ -220,12 +220,9 @@ export async function createAgentRun(db: Db, input: CreateRunInput) {
       "agent run dispatched to K8s"
     );
   } else {
-    // bunqueue path (dev mode / no K8s)
-    const queue = getQueueForProvider(input.provider);
-    await queue.add(`run-${run.id}`, payload, {
-      jobId: `run-${run.id}`,
-    });
-    logger.info({ runId: run.id, provider: input.provider, mode: input.mode }, "agent run enqueued");
+    // Trigger.dev path (dev mode / no K8s)
+    await dispatchAgentRun(input.provider, run.id, payload);
+    logger.info({ runId: run.id, provider: input.provider, mode: input.mode }, "agent run dispatched");
   }
 
   return run;

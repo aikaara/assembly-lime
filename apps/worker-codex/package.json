@@ -9,7 +9,6 @@
   },
   "dependencies": {
     "@assembly-lime/shared": "workspace:*",
-    "bunqueue": "^2.4.6",
     "@kubernetes/client-node": "^1.0.0",
     "openai": "^4.77.0",
     "pino": "^9.6.0",

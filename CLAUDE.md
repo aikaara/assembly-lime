@@ -18,7 +18,7 @@ Assembly Lime is a multi-tenant software factory dashboard where PM/Dev/QA colla
 - **API framework:** Elysia (Bun-native)
 - **Frontend:** React + Vite + Tailwind + Radix UI, drag/drop via `@dnd-kit`
 - **Database:** PostgreSQL 16 via Drizzle ORM
-- **Queue:** bunqueue (Bun-native SQLite queue, BullMQ-compatible API)
+- **Queue:** Trigger.dev v3 (managed cloud queue with retries, concurrency, dashboard)
 - **Auth:** GitHub OAuth + PostgreSQL session cookies (GitHub App later)
 - **Realtime:** WebSocket (Bun-native) + HTTP POST callbacks (workers → API)
 - **Logging:** pino with request IDs and run IDs
@@ -106,12 +106,12 @@ Shared types live in `packages/shared/src/protocol.ts`:
 ## Agent Data Flow
 
 1. UI requests agent run: `POST /agent-runs`
-2. API creates `agent_runs` row, enqueues job via bunqueue (SQLite-backed)
-3. Worker pulls job, clones repo, runs agent, emits streaming `agent_events` via `POST /internal/agent-events/:runId`
+2. API creates `agent_runs` row, dispatches task via Trigger.dev (`tasks.trigger()`)
+3. Trigger.dev task runs agent, emits streaming `agent_events` via `POST /internal/agent-events/:runId`
 4. API persists events + broadcasts to UI via WebSocket
 5. On completion: store diff in `code_diffs`, artifacts, PR link, test results
 
-**No Redis dependency.** Queue persistence uses bunqueue (Bun-native SQLite). Worker-to-API event streaming uses HTTP POST with `x-internal-key` auth. Sessions stored in PostgreSQL `sessions` table.
+**No Redis dependency.** Queue dispatch uses Trigger.dev v3 (managed cloud). Worker-to-API event streaming uses HTTP POST with `x-internal-key` auth. Sessions stored in PostgreSQL `sessions` table.
 
 ## Instruction Resolution Order
 
@@ -147,10 +147,9 @@ Fallback when feature not found: use `project_repositories` and match repo roles
 
 ```
 DATABASE_URL=postgres://...
-BUNQUEUE_HOST=localhost
-BUNQUEUE_PORT=6789
 API_BASE_URL=http://localhost:3434
 INTERNAL_AGENT_API_KEY=...         # openssl rand -hex 32
+TRIGGER_SECRET_KEY=...             # from Trigger.dev dashboard → API Keys
 GITHUB_CLIENT_ID=...
 GITHUB_CLIENT_SECRET=...
 OPENAI_API_KEY=...
@@ -164,16 +163,25 @@ The app is called **assemblyLime**. The user runs all services themselves — do
 
 ```bash
 bun install          # Install dependencies
-bun dev:all          # Start all services (API + web + workers)
 bun db:push          # Apply schema changes (db:migrate has permission issues on managed DB)
 bun db:seed          # Seed dev data
 ```
 
+**Running locally (two terminals):**
+
+```bash
+# Terminal 1: API + web + workers
+bun dev:all
+
+# Terminal 2: Trigger.dev local dev worker (processes agent runs + dep scans)
+bun trigger:dev
+```
+
+`bun dev:all` starts the API, web frontend, and workers. Trigger.dev must run separately — it connects to the Trigger.dev cloud, pulls dispatched tasks, and executes them locally.
+
 **Ports:**
 - `3434` — API (Bun + Elysia)
 - `5173` — Frontend (Vite dev server, proxies `/api` → `:3434`)
-- `6789` — bunqueue TCP server
-- `6790` — bunqueue HTTP API (queue monitoring)
 
 ## Reference Documents
 

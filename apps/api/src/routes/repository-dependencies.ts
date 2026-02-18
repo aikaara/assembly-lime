@@ -6,7 +6,7 @@ import {
   deleteDependency,
   getLatestScan,
 } from "../services/repo-dependency.service";
-import { depScanQueue } from "../lib/queue";
+import { dispatchDepScan } from "../lib/queue";
 import { childLogger } from "../lib/logger";
 
 const log = childLogger({ module: "repository-dependency-routes" });
@@ -49,15 +49,11 @@ export function repositoryDependencyRoutes(db: Db) {
       const tenantId = auth!.tenantId;
       log.info({ tenantId }, "enqueuing dependency scan");
 
-      const job = await depScanQueue.add(
-        `dep-scan-${tenantId}`,
-        { tenantId },
-        { jobId: `dep-scan-${tenantId}-${Date.now()}` }
-      );
+      const handle = await dispatchDepScan(tenantId);
 
       return {
         message: "Dependency scan queued",
-        jobId: job.id,
+        triggerId: handle.id,
       };
     })
     .get("/scan-status", async ({ auth }) => {

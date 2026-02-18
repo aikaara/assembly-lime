@@ -1,0 +1,12 @@
+{
+  "name": "@assembly-lime/trigger",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@assembly-lime/shared": "workspace:*",
+    "@trigger.dev/sdk": "4.3.3",
+    "pino": "^9.6.0",
+    "pino-pretty": "^13.0.0"
+  }
+}

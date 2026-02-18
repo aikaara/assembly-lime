@@ -1,92 +1,49 @@
-import { Queue, Worker, type Job } from "bunqueue/client";
-import {
-  QUEUE_AGENT_RUNS_CLAUDE,
-  QUEUE_AGENT_RUNS_CODEX,
-  QUEUE_DEPENDENCY_SCANS,
-  type AgentJobPayload,
-} from "@assembly-lime/shared";
+import { configure, tasks } from "@trigger.dev/sdk/v3";
+import type { AgentJobPayload } from "@assembly-lime/shared";
 import { childLogger } from "./logger";
 
 const log = childLogger({ module: "queue" });
 
-const connection = {
-  host: process.env.BUNQUEUE_HOST ?? "localhost",
-  port: Number(process.env.BUNQUEUE_PORT) || 6789,
-};
+// Force-clear any stale Trigger.dev global config (survives Bun --watch reloads)
+// then re-configure with the current env var.
+const TRIGGER_GLOBAL = Symbol.for("dev.trigger.ts.api");
+const g = globalThis as Record<symbol, Record<string, unknown> | undefined>;
+if (g[TRIGGER_GLOBAL]) {
+  delete g[TRIGGER_GLOBAL]["api-client"];
+}
+configure({ accessToken: process.env.TRIGGER_SECRET_KEY });
+log.info(
+  { hasKey: !!process.env.TRIGGER_SECRET_KEY },
+  "Trigger.dev SDK configured",
+);
 
-// ── Agent queues ────────────────────────────────────────────────────
+// ── Agent dispatch ──────────────────────────────────────────────────
 
-export const claudeQueue = new Queue<AgentJobPayload>(QUEUE_AGENT_RUNS_CLAUDE, {
-  connection,
-});
-
-export const codexQueue = new Queue<AgentJobPayload>(QUEUE_AGENT_RUNS_CODEX, {
-  connection,
-});
-
-export function getQueueForProvider(
-  provider: "claude" | "codex"
-): Queue<AgentJobPayload> {
-  return provider === "claude" ? claudeQueue : codexQueue;
+export async function dispatchAgentRun(
+  provider: "claude" | "codex",
+  runId: number,
+  payload: AgentJobPayload,
+) {
+  const taskId = provider === "claude" ? "claude-agent" : "codex-agent";
+  const handle = await tasks.trigger(taskId, payload, {
+    idempotencyKey: `run-${runId}`,
+  });
+  log.info(
+    { runId, provider, triggerRunId: handle.id },
+    "agent run dispatched to Trigger.dev",
+  );
+  return handle;
 }
 
-// ── Dependency scan queue ───────────────────────────────────────────
+// ── Dependency scan dispatch ────────────────────────────────────────
 
-export type DepScanJobPayload = { tenantId: number };
-
-export const depScanQueue = new Queue<DepScanJobPayload>(QUEUE_DEPENDENCY_SCANS, {
-  connection,
-});
+export async function dispatchDepScan(tenantId: number) {
+  const handle = await tasks.trigger("dep-scan", { tenantId }, {
+    idempotencyKey: `dep-scan-${tenantId}-${Date.now()}`,
+  });
+  log.info({ tenantId, triggerRunId: handle.id }, "dep scan dispatched to Trigger.dev");
+  return handle;
+}
 
 /** Logger callback that writes to both pino and job.log */
 export type JobLogger = (message: string) => Promise<void>;
-
-function makeJobLogger(job: Job): JobLogger {
-  return async (message: string) => {
-    log.info({ jobId: job.id }, message);
-    await job.log(message);
-  };
-}
-
-/**
- * Start the dependency scan worker.
- * Called once from index.ts after DB is ready.
- */
-export function startDepScanWorker(
-  processFn: (tenantId: number, jobLog: JobLogger, updateProgress: (pct: number) => Promise<void>) => Promise<void>
-): Worker<DepScanJobPayload> {
-  const worker = new Worker<DepScanJobPayload>(
-    QUEUE_DEPENDENCY_SCANS,
-    async (job) => {
-      const jobLog = makeJobLogger(job);
-      await jobLog(`Dependency scan started for tenant ${job.data.tenantId}`);
-      await job.updateProgress(0);
-
-      await processFn(
-        job.data.tenantId,
-        jobLog,
-        async (pct) => { await job.updateProgress(pct); }
-      );
-
-      await jobLog("Dependency scan finished");
-      await job.updateProgress(100);
-    },
-    {
-      connection,
-      concurrency: 2,
-    }
-  );
-
-  worker.on("completed", (job) => {
-    log.info({ jobId: job.id, tenantId: job.data.tenantId }, "dep scan job completed");
-  });
-
-  worker.on("failed", (job, err) => {
-    log.error(
-      { jobId: job?.id, tenantId: job?.data.tenantId, err: err.message },
-      "dep scan job failed"
-    );
-  });
-
-  return worker;
-}

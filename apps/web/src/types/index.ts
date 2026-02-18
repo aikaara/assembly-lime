@@ -30,6 +30,12 @@ export type AgentEvent =
       previewUrl: string;
       branch: string;
       status: PreviewDeploymentStatus;
+    }
+  | {
+      type: "sandbox";
+      sandboxId: string;
+      sandboxUrl: string;
+      provider: "daytona";
     };
 
 // ── API response shapes ──────────────────────────────────────────────

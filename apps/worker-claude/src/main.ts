@@ -1,23 +1,8 @@
-import { Worker } from "bunqueue/client";
-import {
-  QUEUE_AGENT_RUNS_CLAUDE,
-  DaytonaWorkspace,
-  type AgentJobPayload,
-} from "@assembly-lime/shared";
+import type { AgentJobPayload } from "@assembly-lime/shared";
 import { logger } from "./lib/logger";
 import { AgentEventEmitter } from "./agent/event-emitter";
 import { runClaudeAgent } from "./agent/claude-runner";
-import { runClaudeAgentMultiRepo } from "./agent/multi-repo-runner";
 import { runWorkspaceAgent } from "./agent/workspace-runner";
-import { runDaytonaWorkspaceAgent } from "./agent/daytona-workspace-runner";
-import { launchK8sJob } from "./k8s/job-launcher";
-
-const USE_K8S_SANDBOX = process.env.USE_K8S_SANDBOX === "true";
-
-const connection = {
-  host: process.env.BUNQUEUE_HOST ?? "localhost",
-  port: Number(process.env.BUNQUEUE_PORT) || 6789,
-};
 
 // ── K8s single-run mode ──────────────────────────────────────────────
 // When launched as a K8s Job, the payload is in AGENT_JOB_PAYLOAD env var.
@@ -40,75 +25,7 @@ if (encodedPayload) {
     logger.error({ runId: payload.runId }, "K8s job rejected: no repo specified");
   }
   process.exit(0);
+} else {
+  // Queue-based execution is now handled by Trigger.dev tasks (apps/trigger/)
+  logger.info("worker-claude: no AGENT_JOB_PAYLOAD — queue processing is handled by Trigger.dev");
 }
-
-// ── bunqueue worker mode ────────────────────────────────────────────
-
-const worker = new Worker<AgentJobPayload>(
-  QUEUE_AGENT_RUNS_CLAUDE,
-  async (job) => {
-    const payload = job.data;
-    const log = logger.child({ runId: payload.runId, jobId: job.id });
-    log.info("processing claude agent job");
-
-    // Daytona workspace path
-    if (payload.sandbox?.provider === "daytona" && payload.repo) {
-      log.info("using Daytona workspace");
-      const workspace = await DaytonaWorkspace.create({
-        runId: payload.runId,
-        provider: payload.provider,
-        mode: payload.mode,
-        repo: payload.repo,
-      });
-      const branchName = `al/${payload.mode}/${payload.runId}`;
-      await workspace.createBranch(branchName);
-
-      // Inject env vars if provided
-      if (payload.sandbox.envVars) {
-        await workspace.injectEnvVars(payload.sandbox.envVars);
-        log.info({ keyCount: Object.keys(payload.sandbox.envVars).length }, "env vars injected into workspace");
-      }
-
-      const emitter = new AgentEventEmitter(payload.runId);
-      await runDaytonaWorkspaceAgent(payload, emitter, workspace);
-      return;
-    }
-
-    if (USE_K8S_SANDBOX) {
-      log.info("delegating to K8s sandbox");
-      await launchK8sJob(payload);
-      return;
-    }
-
-    // Guard: never run without a sandbox/repo — prevents agents from touching local files
-    if (!payload.repo && (!payload.repos || payload.repos.length === 0)) {
-      const emitter = new AgentEventEmitter(payload.runId);
-      await emitter.emitError("No repository specified — cannot run agent without a sandbox");
-      await emitter.emitStatus("failed", "No repository specified");
-      log.error({ runId: payload.runId }, "rejected run: no repo/sandbox specified");
-      return;
-    }
-
-    // Direct execution mode (dev) — repo is guaranteed to exist at this point
-    const emitter = new AgentEventEmitter(payload.runId);
-    if (payload.repos && payload.repos.length > 0) {
-      await runClaudeAgentMultiRepo(payload, emitter);
-    } else {
-      await runClaudeAgent(payload, emitter);
-    }
-  },
-  {
-    connection,
-    concurrency: 2,
-  }
-);
-
-worker.on("failed", (job, err) => {
-  logger.error({ jobId: job?.id, err: err.message }, "job failed");
-});
-
-worker.on("completed", (job) => {
-  logger.info({ jobId: job.id }, "job completed");
-});
-
-logger.info("worker-claude: listening for jobs");

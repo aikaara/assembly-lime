@@ -15,7 +15,7 @@
     "@anthropic-ai/sdk": "^0.74.0",
     "@assembly-lime/shared": "workspace:*",
     "@kubernetes/client-node": "^1.0.0",
-    "bunqueue": "^2.4.6",
+    "@trigger.dev/sdk": "4.3.3",
     "drizzle-orm": "^0.45.1",
     "elysia": "^1.4.23",
     "pino": "^9.6.0",

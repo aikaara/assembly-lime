@@ -71,11 +71,6 @@ export async function launchK8sJob(payload: AgentJobPayload): Promise<void> {
                     },
                   },
                 },
-                { name: "CLAUDE_CODE_USE_BEDROCK", value: "1" },
-                {
-                  name: "AWS_REGION",
-                  value: process.env.AWS_REGION ?? "us-east-1",
-                },
               ],
             },
           ],

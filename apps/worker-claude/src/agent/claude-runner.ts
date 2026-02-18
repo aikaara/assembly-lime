@@ -29,9 +29,7 @@ export async function runClaudeAgent(
         allowDangerouslySkipPermissions: true,
         model: "sonnet",
         maxTurns: 25,
-        executable: "bun",
         env: {
-          CLAUDE_CODE_USE_BEDROCK: "1",
           ...(process.env as Record<string, string>),
         },
       },

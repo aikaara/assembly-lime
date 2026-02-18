@@ -56,4 +56,8 @@ export class AgentEventEmitter {
   ): Promise<void> {
     await this.emit({ type: "artifact", name, url, mime });
   }
+
+  async emitSandbox(sandboxId: string, sandboxUrl: string): Promise<void> {
+    await this.emit({ type: "sandbox", sandboxId, sandboxUrl, provider: "daytona" });
+  }
 }

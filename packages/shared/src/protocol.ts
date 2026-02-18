@@ -107,10 +107,12 @@ export type AgentEvent =
       tokensBefore: number;
       tokensAfter: number;
       summary: string;
+    }
+  | {
+      type: "sandbox";
+      sandboxId: string;
+      sandboxUrl: string;
+      provider: "daytona";
     };
 
-// ── Queue constants ──────────────────────────────────────────────────
-export const QUEUE_AGENT_RUNS_CLAUDE = "agent-runs-claude";
-export const QUEUE_AGENT_RUNS_CODEX = "agent-runs-codex";
-export const QUEUE_DEPENDENCY_SCANS = "dependency-scans";
 

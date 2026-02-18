@@ -393,3 +393,9 @@ export class DaytonaWorkspace {
     return { installCommand: null, startCommand: "sleep infinity", port: 3000, portSource: "fallback" };
   }
 }
+
+export function getDaytonaSandboxUrl(sandboxId: string): string {
+  const apiUrl = (process.env.DAYTONA_API_URL || "https://app.daytona.io/api").replace(/\/+$/, "");
+  const baseUrl = apiUrl.endsWith("/api") ? apiUrl.slice(0, -4) : apiUrl;
+  return `${baseUrl}/sandbox/${sandboxId}`;
+}

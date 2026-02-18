@@ -12,7 +12,6 @@
     "@assembly-lime/shared": "workspace:*",
     "@daytonaio/sdk": "^0.143.0",
     "@kubernetes/client-node": "^1.0.0",
-    "bunqueue": "^2.4.6",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",
     "zod": "^4.3.6"

@@ -8,7 +8,7 @@ import { browseFileTree, getFileContent, listOrgRepos, importRepos } from "../se
 import { getConnectorToken } from "../services/connector.service";
 import { scanRepoForConfigs, listRepoConfigs } from "../services/env-detection.service";
 import { autoCreateFromDetectedKeys } from "../services/env-var.service";
-import { depScanQueue } from "../lib/queue";
+import { dispatchDepScan } from "../lib/queue";
 import { ensureFork, getForkStatus } from "../services/fork.service";
 import { encryptToken } from "../lib/encryption";
 import { childLogger } from "../lib/logger";
@@ -188,13 +188,9 @@ export function repositoryRoutes(db: Db) {
         const imported = await importRepos(db, auth!.tenantId, connector.id, toImport);
         log.info({ tenantId: auth!.tenantId, fetched: ghRepos.length, imported: imported.length }, "repo sync complete");
 
-        // Enqueue dependency scan after import
-        depScanQueue.add(
-          `dep-scan-${auth!.tenantId}`,
-          { tenantId: auth!.tenantId },
-          { jobId: `dep-scan-post-sync-${auth!.tenantId}-${Date.now()}` }
-        ).catch((err) => {
-          log.warn({ tenantId: auth!.tenantId, err }, "failed to enqueue auto dependency scan");
+        // Dispatch dependency scan after import
+        dispatchDepScan(auth!.tenantId).catch((err) => {
+          log.warn({ tenantId: auth!.tenantId, err }, "failed to dispatch auto dependency scan");
         });
 
         return { fetched: ghRepos.length, imported: imported.length };

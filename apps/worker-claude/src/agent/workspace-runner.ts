@@ -45,9 +45,7 @@ export async function runWorkspaceAgent(
         allowDangerouslySkipPermissions: true,
         model: "sonnet",
         maxTurns: 40,
-        executable: "bun",
         env: {
-          CLAUDE_CODE_USE_BEDROCK: "1",
           ...(process.env as Record<string, string>),
         },
       },
