@@ -12,10 +12,6 @@ if (g[TRIGGER_GLOBAL]) {
   delete g[TRIGGER_GLOBAL]["api-client"];
 }
 configure({ accessToken: process.env.TRIGGER_SECRET_KEY });
-log.info(
-  { hasKey: !!process.env.TRIGGER_SECRET_KEY },
-  "Trigger.dev SDK configured",
-);
 
 // ── Agent dispatch ──────────────────────────────────────────────────
 

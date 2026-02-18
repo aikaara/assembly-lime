@@ -1,4 +1,3 @@
-console.log("[BOOT] TRIGGER_SECRET_KEY present:", !!process.env.TRIGGER_SECRET_KEY, process.env.TRIGGER_SECRET_KEY?.slice(0, 10));
 import { Elysia } from "elysia";
 import { db } from "./db";
 import { logger } from "./lib/logger";
@@ -42,11 +41,6 @@ const app = new Elysia()
     logger.error({ method: request.method, path: url.pathname, err: msg }, "request error");
   })
   .get("/health", () => ({ ok: true }))
-  .get("/debug-env", () => ({
-    hasTriggerKey: !!process.env.TRIGGER_SECRET_KEY,
-    keyPrefix: process.env.TRIGGER_SECRET_KEY?.slice(0, 10) ?? "MISSING",
-    envKeys: Object.keys(process.env).filter(k => k.includes("TRIGGER")),
-  }))
   .use(authRoutes(db))
   .use(meRoutes(db))
   .use(projectRoutes(db))

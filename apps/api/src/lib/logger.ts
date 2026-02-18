@@ -4,7 +4,15 @@ let transport: pino.TransportSingleOptions | undefined;
 if (process.env.NODE_ENV !== "production") {
   try {
     require.resolve("pino-pretty");
-    transport = { target: "pino-pretty", options: { colorize: true } };
+    transport = {
+      target: "pino-pretty",
+      options: {
+        colorize: true,
+        singleLine: true,
+        translateTime: "HH:MM:ss",
+        ignore: "pid,hostname",
+      },
+    };
   } catch {
     // pino-pretty not resolvable (e.g. Trigger.dev worker) — use default JSON output
   }

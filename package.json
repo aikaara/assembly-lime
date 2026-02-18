@@ -4,9 +4,9 @@
   "private": true,
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
-    "dev": "bun run --filter '@assembly-lime/api' dev",
-    "dev:web": "bun run --filter '@assembly-lime/web' dev",
-    "dev:all": "bun run --filter '*' dev",
+    "dev": "cd apps/api && bun run dev",
+    "dev:web": "cd apps/web && bun run dev",
+    "dev:all": "cd apps/api && bun run dev & cd apps/web && bun run dev & wait",
     "trigger:dev": "npx trigger.dev@4.3.3 dev",
     "trigger:deploy": "npx trigger.dev@4.3.3 deploy",
     "build": "bun run build:web && bun run build:worker-claude && bun run build:worker-codex",
