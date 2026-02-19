@@ -92,14 +92,22 @@ export class AgentEventEmitter {
   }
 
   private async postInternal(path: string, data: unknown): Promise<void> {
-    await fetch(`${this.baseUrl}/internal/${path}/${this.runId}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-internal-key": INTERNAL_KEY,
-      },
-      body: JSON.stringify(data),
-    });
+    try {
+      const res = await fetch(`${this.baseUrl}/internal/${path}/${this.runId}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-internal-key": INTERNAL_KEY,
+        },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        console.warn(`[emitter] POST /internal/${path}/${this.runId} failed: ${res.status} ${text}`);
+      }
+    } catch (err) {
+      console.warn(`[emitter] POST /internal/${path}/${this.runId} error:`, err);
+    }
   }
 
   async emitLlmCallDump(dump: LlmCallDump): Promise<void> {

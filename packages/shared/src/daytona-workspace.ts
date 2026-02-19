@@ -14,19 +14,14 @@ export class DaytonaWorkspace {
   }
 
   /**
-   * Factory: creates a Daytona sandbox, clones the repository, and returns a workspace instance.
+   * Create a Daytona sandbox without cloning any repo.
+   * Use `cloneRepo()` afterwards to clone with auth credentials.
    */
-  static async create(opts: {
+  static async createSandbox(opts: {
     runId: number;
     provider: string;
     mode: string;
-    repo: {
-      cloneUrl: string;
-      name: string;
-      defaultBranch: string;
-      ref?: string;
-      authToken?: string;
-    };
+    repoName: string;
   }): Promise<DaytonaWorkspace> {
     const daytona = new Daytona();
     const labels: Record<string, string> = {
@@ -41,31 +36,72 @@ export class DaytonaWorkspace {
       autoStopInterval: 60,
     });
 
-    const repoDir = opts.repo.name || "repo";
-    const branch = opts.repo.ref || opts.repo.defaultBranch;
-    const authUser = opts.repo.authToken ? "x-access-token" : undefined;
-    const authPass = opts.repo.authToken || undefined;
+    const repoDir = opts.repoName || "repo";
+    return new DaytonaWorkspace(sandbox, repoDir);
+  }
 
-    console.log("[DaytonaWorkspace.create]", {
-      cloneUrl: opts.repo.cloneUrl,
-      repoDir,
-      branch,
-      hasAuthUser: !!authUser,
-      hasAuthPass: !!authPass,
-      authTokenLength: opts.repo.authToken?.length ?? 0,
-      sandboxId: sandbox.id,
-    });
+  /**
+   * Clone a repo into the sandbox with auth credentials.
+   */
+  async cloneRepo(opts: {
+    cloneUrl: string;
+    defaultBranch: string;
+    ref?: string;
+    authToken?: string;
+  }): Promise<void> {
+    const branch = opts.ref || opts.defaultBranch;
+    const authUser = opts.authToken ? "x-access-token" : undefined;
+    const authPass = opts.authToken || undefined;
 
-    await sandbox.git.clone(
-      opts.repo.cloneUrl,
-      repoDir,
+    this.authUser = authUser;
+    this.authPass = authPass;
+
+    await this.sandbox.git.clone(
+      opts.cloneUrl,
+      this.repoDir,
       branch,
       undefined,
       authUser,
       authPass,
     );
+  }
 
-    return new DaytonaWorkspace(sandbox, repoDir, authUser, authPass);
+  /** Update stored auth credentials (e.g. after token refresh). */
+  setAuthCredentials(user: string, pass: string): void {
+    this.authUser = user;
+    this.authPass = pass;
+  }
+
+  /**
+   * Convenience: creates a Daytona sandbox, clones the repository, and returns a workspace instance.
+   */
+  static async create(opts: {
+    runId: number;
+    provider: string;
+    mode: string;
+    repo: {
+      cloneUrl: string;
+      name: string;
+      defaultBranch: string;
+      ref?: string;
+      authToken?: string;
+    };
+  }): Promise<DaytonaWorkspace> {
+    const workspace = await DaytonaWorkspace.createSandbox({
+      runId: opts.runId,
+      provider: opts.provider,
+      mode: opts.mode,
+      repoName: opts.repo.name,
+    });
+
+    await workspace.cloneRepo({
+      cloneUrl: opts.repo.cloneUrl,
+      defaultBranch: opts.repo.defaultBranch,
+      ref: opts.repo.ref,
+      authToken: opts.repo.authToken,
+    });
+
+    return workspace;
   }
 
   // ── Git operations ──────────────────────────────────────────────────

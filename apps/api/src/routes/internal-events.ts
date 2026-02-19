@@ -254,8 +254,15 @@ export function internalEventRoutes(db: Db) {
           .from(agentRuns)
           .where(eq(agentRuns.id, runId));
         if (!run) {
+          log.warn({ runId }, "agent-tasks: run not found");
           set.status = 404;
           return { error: "run not found" };
+        }
+
+        if (!run.projectId) {
+          log.warn({ runId }, "agent-tasks: run has no projectId — cannot create tickets");
+          set.status = 400;
+          return { error: "run has no projectId — cannot create tickets without a project" };
         }
 
         const data = body as { tasks: Array<{ title: string; description?: string }> };
@@ -266,29 +273,36 @@ export function internalEventRoutes(db: Db) {
 
         const createdTickets: Array<{ ticketId: string; title: string }> = [];
 
-        for (const task of data.tasks) {
-          const ticket = await createTicket(
-            db,
-            run.tenantId,
-            run.projectId,
-            {
-              title: task.title,
-              descriptionMd: task.description,
-              columnKey: "todo",
-              labelsJson: ["agent-planned"],
-            },
-          );
+        try {
+          for (const task of data.tasks) {
+            const ticket = await createTicket(
+              db,
+              run.tenantId,
+              run.projectId,
+              {
+                title: task.title,
+                descriptionMd: task.description,
+                columnKey: "todo",
+                labelsJson: ["agent-planned"],
+              },
+            );
 
-          // Set parentTicketId and agentRunId on the created ticket
-          await db
-            .update(tickets)
-            .set({
-              parentTicketId: run.ticketId ?? undefined,
-              agentRunId: runId,
-            })
-            .where(eq(tickets.id, Number(ticket.id)));
+            // Set parentTicketId and agentRunId on the created ticket
+            await db
+              .update(tickets)
+              .set({
+                parentTicketId: run.ticketId ?? undefined,
+                agentRunId: runId,
+              })
+              .where(eq(tickets.id, Number(ticket.id)));
 
-          createdTickets.push({ ticketId: ticket.id, title: ticket.title });
+            createdTickets.push({ ticketId: ticket.id, title: ticket.title });
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          log.error({ runId, projectId: run.projectId, err: msg }, "agent-tasks: failed to create tickets");
+          set.status = 500;
+          return { error: `Failed to create tickets: ${msg}` };
         }
 
         // Broadcast tasks event via WebSocket

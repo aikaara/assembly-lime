@@ -1,5 +1,5 @@
 import type { AgentJobPayload } from "@assembly-lime/shared";
-import { DaytonaWorkspace, getDaytonaSandboxUrl } from "@assembly-lime/shared";
+import { DaytonaWorkspace, getDaytonaSandboxUrl, isGitHubAppConfigured, generateInstallationToken } from "@assembly-lime/shared";
 import { logger } from "./lib/logger";
 import { AgentEventEmitter } from "./agent/emitter";
 import { createAgent } from "./agent/factory";
@@ -43,23 +43,34 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
       await emitter.emitLog(`Selected repository: ${selected.fullName || `${selected.owner}/${selected.name}`} — ${reasoning}`);
     }
 
-    // 2. Create Daytona workspace
-    if (!payload.repo.authToken) {
+    // 2. Resolve auth token — prefer fresh GitHub App installation token
+    let authToken = payload.repo.authToken;
+    let tokenExpiresAt: Date | undefined;
+
+    if (isGitHubAppConfigured()) {
+      try {
+        log.info({ repoOwner: payload.repo.owner }, "generating GitHub App installation token");
+        const installToken = await generateInstallationToken(payload.repo.owner);
+        authToken = installToken.token;
+        tokenExpiresAt = installToken.expiresAt;
+        log.info({ expiresAt: installToken.expiresAt, tokenLength: installToken.token.length }, "GitHub App installation token generated");
+      } catch (err) {
+        log.warn({ err }, "failed to generate GitHub App token, falling back to connector token");
+      }
+    }
+
+    if (!authToken) {
       log.warn({ repoName: `${payload.repo.owner}/${payload.repo.name}`, connectorId: payload.repo.connectorId }, "no auth token for repo — clone will fail for private repos");
       await emitter.emitLog("Warning: no auth token available for this repository. If the repo is private, the clone will fail.");
     }
-    log.info({ repoName: `${payload.repo.owner}/${payload.repo.name}`, hasAuthToken: !!payload.repo.authToken }, "creating Daytona workspace");
-    workspace = await DaytonaWorkspace.create({
+
+    // 3. Create Daytona sandbox (no clone yet)
+    log.info({ repoName: `${payload.repo.owner}/${payload.repo.name}`, hasAuthToken: !!authToken }, "creating Daytona sandbox");
+    workspace = await DaytonaWorkspace.createSandbox({
       runId: payload.runId,
       provider: payload.provider,
       mode: payload.mode,
-      repo: {
-        cloneUrl: payload.repo.cloneUrl,
-        name: payload.repo.name,
-        defaultBranch: payload.repo.defaultBranch,
-        ref: payload.repo.ref,
-        authToken: payload.repo.authToken,
-      },
+      repoName: payload.repo.name,
     });
 
     // Emit sandbox URL immediately
@@ -71,7 +82,16 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
       provider: "daytona",
     });
     await emitter.emitArtifact("sandbox", sandboxUrl, "text/html");
-    log.info({ sandboxId: workspace.sandbox.id }, "Daytona workspace created");
+    log.info({ sandboxId: workspace.sandbox.id }, "Daytona sandbox created");
+
+    // Clone repo into sandbox with auth token
+    await workspace.cloneRepo({
+      cloneUrl: payload.repo.cloneUrl,
+      defaultBranch: payload.repo.defaultBranch,
+      ref: payload.repo.ref,
+      authToken,
+    });
+    log.info({ repoName: `${payload.repo.owner}/${payload.repo.name}`, hasAuth: !!authToken }, "repo cloned into sandbox");
 
     // Create working branch
     const branchName = `al/${payload.mode}/${payload.runId}`;
@@ -96,7 +116,7 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
 
     for (const extra of additionalRepos) {
       const repoName = extra.cloneUrl.split("/").pop()?.replace(".git", "") ?? `repo-${extra.repositoryId}`;
-      const cloneUrl = buildCloneUrl(extra.cloneUrl, extra.authToken ?? payload.repo.authToken);
+      const cloneUrl = buildCloneUrl(extra.cloneUrl, extra.authToken ?? authToken);
       await workspace.exec(`git clone --depth 50 ${cloneUrl} /home/daytona/repos/${repoName}`);
       log.info({ repoName, repositoryId: extra.repositoryId }, "cloned additional repo into sandbox");
     }
@@ -110,7 +130,7 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
       },
     };
 
-    // 3. Build repo paths for system prompt (multi-repo context)
+    // 4. Build repo paths for system prompt (multi-repo context)
     const repoPaths: Array<{ name: string; path: string; primary: boolean }> = [];
     repoPaths.push({
       name: `${payload.repo.owner}/${payload.repo.name}`,
@@ -122,25 +142,25 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
       repoPaths.push({ name: repoName, path: `/home/daytona/repos/${repoName}`, primary: false });
     }
 
-    // 4. Build PR context
+    // 5. Build PR context
     let prContext: PRContext | undefined;
-    if (payload.repo.authToken) {
+    if (authToken) {
       prContext = {
         owner: payload.repo.owner,
         name: payload.repo.name,
         defaultBranch: payload.repo.defaultBranch,
-        authToken: payload.repo.authToken,
+        authToken,
       };
     }
 
-    // 5. Build tools
+    // 6. Build tools
     const { tools, toolRegistry } = buildToolSet(cwd, payload.mode, ops, gitOps, {
       prContext,
       emitter,
     });
     log.info({ toolCount: tools.length, mode: payload.mode }, "tools built");
 
-    // 6. Build system prompt
+    // 7. Build system prompt
     const systemPrompt = buildSystemPrompt({
       mode: payload.mode,
       resolvedPrompt: payload.resolvedPrompt,
@@ -149,7 +169,7 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
       repos: repoPaths.length > 0 ? repoPaths : undefined,
     });
 
-    // 7. Create agent
+    // 8. Create agent
     const agent = createAgent({
       providerId: payload.provider,
       mode: payload.mode,
@@ -158,7 +178,7 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
       emitter,
     });
 
-    // 8. Bridge events with max-turns safety
+    // 9. Bridge events with max-turns safety
     const bridge = bridgeEvents(emitter, log, {
       maxTurns: 50,
       onMaxTurns: () => {
@@ -167,7 +187,7 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
     });
     const unsubscribe = agent.subscribe(bridge.handler);
 
-    // 9. Emit run repo tracking (before agent starts)
+    // 10. Emit run repo tracking (before agent starts)
     const branchNameTracking = `al/${payload.mode}/${payload.runId}`;
     emitter.emitRunRepo({
       repositoryId: payload.repo.repositoryId,
@@ -175,7 +195,7 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
       status: "running",
     }).catch(() => {});
 
-    // 10. Run the prompt
+    // 11. Run the prompt
     log.info("starting agent prompt");
     await agent.prompt(payload.inputPrompt);
     await agent.waitForIdle();
@@ -183,7 +203,7 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
     unsubscribe();
     log.info({ totalTurns: bridge.getTurnNumber() }, "agent run completed");
 
-    // 11. Plan mode: emit awaiting_approval for human-in-the-loop
+    // 12. Plan mode: emit awaiting_approval for human-in-the-loop
     if (payload.mode === "plan") {
       await emitter.emitStatus(
         "awaiting_approval",
@@ -191,12 +211,28 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
       );
     }
 
-    // 12. Post-run: auto-commit + push + diff (implement/bugfix only)
+    // 13. Post-run: auto-commit + push + diff (implement/bugfix only)
     if (payload.mode === "implement" || payload.mode === "bugfix") {
+      // Refresh token if using GitHub App and token is near expiry (< 10 min left)
+      if (isGitHubAppConfigured() && tokenExpiresAt) {
+        const minutesLeft = (tokenExpiresAt.getTime() - Date.now()) / 60_000;
+        if (minutesLeft < 10) {
+          try {
+            log.info({ minutesLeft: Math.round(minutesLeft) }, "refreshing GitHub App token before push");
+            const refreshed = await generateInstallationToken(payload.repo.owner);
+            authToken = refreshed.token;
+            tokenExpiresAt = refreshed.expiresAt;
+            workspace.setAuthCredentials("x-access-token", refreshed.token);
+            if (prContext) prContext.authToken = refreshed.token;
+          } catch (err) {
+            log.warn({ err }, "failed to refresh GitHub App token (will use existing)");
+          }
+        }
+      }
       await postRunDaytona(workspace, emitter, log, prContext, payload.runId, payload.mode, payload.repo);
     }
 
-    // 13. Preview (implement/bugfix modes)
+    // 14. Preview (implement/bugfix modes)
     if (payload.mode === "implement" || payload.mode === "bugfix") {
       let previewUrl: string | undefined;
       try {
@@ -211,7 +247,7 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
         log.warn({ err }, "failed to start dev server (non-fatal)");
       }
 
-      // 14. Emit awaiting_approval — user must approve before PR is created
+      // 15. Emit awaiting_approval — user must approve before PR is created
       const approvalMsg = previewUrl
         ? `Changes committed and pushed. Preview: ${previewUrl}. Approve to create PR.`
         : "Changes committed and pushed. Approve to create PR.";
