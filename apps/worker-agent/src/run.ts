@@ -23,7 +23,8 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
       if (!payload.repos || payload.repos.length === 0) {
         throw new Error("repo is required — no repo provided and no candidate repos available");
       }
-      log.info({ candidateCount: payload.repos.length }, "no primary repo, running LLM repo selection");
+      const reposWithToken = payload.repos.filter(r => !!r.authToken).length;
+      log.info({ candidateCount: payload.repos.length, reposWithAuthToken: reposWithToken }, "no primary repo, running LLM repo selection");
       await emitter.emitLog(`Selecting best repository from ${payload.repos.length} candidates...`);
 
       const { selected, reasoning } = await selectRepo(payload.repos, payload.inputPrompt, payload.mode);
@@ -43,7 +44,11 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
     }
 
     // 2. Create Daytona workspace
-    log.info("creating Daytona workspace");
+    if (!payload.repo.authToken) {
+      log.warn({ repoName: `${payload.repo.owner}/${payload.repo.name}`, connectorId: payload.repo.connectorId }, "no auth token for repo — clone will fail for private repos");
+      await emitter.emitLog("Warning: no auth token available for this repository. If the repo is private, the clone will fail.");
+    }
+    log.info({ repoName: `${payload.repo.owner}/${payload.repo.name}`, hasAuthToken: !!payload.repo.authToken }, "creating Daytona workspace");
     workspace = await DaytonaWorkspace.create({
       runId: payload.runId,
       provider: payload.provider,
@@ -79,11 +84,19 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
       await workspace.injectEnvVars(envVars);
     }
 
-    // Clone additional repos (multi-repo support)
-    const additionalRepos = (payload.repos ?? []).filter(r => r.repositoryId !== payload.repo!.repositoryId);
+    // Clone additional repos (multi-repo support) — scoped by mode
+    let additionalRepos: typeof payload.repos = [];
+    if (payload.mode === "implement" || payload.mode === "bugfix") {
+      // Only clone repos with a role label or isPrimary flag (max ~5 relevant repos, not 80+)
+      additionalRepos = (payload.repos ?? [])
+        .filter(r => r.repositoryId !== payload.repo!.repositoryId)
+        .filter(r => r.roleLabel || r.isPrimary);
+    }
+    // plan/review mode: no additional repos — primary only
+
     for (const extra of additionalRepos) {
       const repoName = extra.cloneUrl.split("/").pop()?.replace(".git", "") ?? `repo-${extra.repositoryId}`;
-      const cloneUrl = buildCloneUrl(extra.cloneUrl, payload.repo.authToken);
+      const cloneUrl = buildCloneUrl(extra.cloneUrl, extra.authToken ?? payload.repo.authToken);
       await workspace.exec(`git clone --depth 50 ${cloneUrl} /home/daytona/repos/${repoName}`);
       log.info({ repoName, repositoryId: extra.repositoryId }, "cloned additional repo into sandbox");
     }
@@ -170,12 +183,20 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
     unsubscribe();
     log.info({ totalTurns: bridge.getTurnNumber() }, "agent run completed");
 
-    // 11. Post-run: auto-commit + push + diff (implement/bugfix only)
+    // 11. Plan mode: emit awaiting_approval for human-in-the-loop
+    if (payload.mode === "plan") {
+      await emitter.emitStatus(
+        "awaiting_approval",
+        "Plan complete — review the created tasks and approve to begin implementation."
+      );
+    }
+
+    // 12. Post-run: auto-commit + push + diff (implement/bugfix only)
     if (payload.mode === "implement" || payload.mode === "bugfix") {
       await postRunDaytona(workspace, emitter, log, prContext, payload.runId, payload.mode, payload.repo);
     }
 
-    // 12. Preview (implement/bugfix modes)
+    // 13. Preview (implement/bugfix modes)
     if (payload.mode === "implement" || payload.mode === "bugfix") {
       let previewUrl: string | undefined;
       try {
@@ -190,7 +211,7 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
         log.warn({ err }, "failed to start dev server (non-fatal)");
       }
 
-      // 13. Emit awaiting_approval — user must approve before PR is created
+      // 14. Emit awaiting_approval — user must approve before PR is created
       const approvalMsg = previewUrl
         ? `Changes committed and pushed. Preview: ${previewUrl}. Approve to create PR.`
         : "Changes committed and pushed. Approve to create PR.";

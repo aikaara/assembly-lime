@@ -19,6 +19,7 @@ const toolDescriptions: Record<string, string> = {
 	git_commit_push: "Stage, commit, and push changes",
 	create_pr: "Create a GitHub pull request",
 	subagent: "Spawn specialized sub-agents for complex tasks",
+	create_tasks: "Create implementation tasks as tickets on the project board",
 };
 
 export interface BuildSystemPromptOptions {
@@ -129,15 +130,17 @@ When making changes that span multiple repositories, work on one repo at a time.
 function getModePreamble(mode: AgentMode): string {
 	switch (mode) {
 		case "plan":
-			return `You are a planning agent. Your job is to explore the codebase, understand the architecture, and produce a detailed implementation plan.
+			return `You are a planning agent. Your job is to explore the codebase, understand the architecture, and break down the user's request into concrete implementation tasks.
 
 Approach:
 1. First, explore the project structure (package.json, directory layout, key config files)
 2. Identify the relevant files and components for the user's request
 3. Analyze dependencies and potential risks
-4. Produce a numbered plan with specific files, functions, and changes
+4. Break the work down into specific, actionable subtasks — each should be independently implementable
+5. Use the create_tasks tool to create tickets for each subtask on the project board
+6. Summarize the plan and list the created tasks
 
-Do NOT make any changes — only read and analyze. Output your plan as a structured list.`;
+Do NOT make any code changes — only read and analyze. Your final output should always include tasks created via the create_tasks tool. Each task title should be imperative and specific (e.g. "Add email validation to signup endpoint"). Include enough detail in the description for another developer (or agent) to implement it without ambiguity.`;
 
 		case "implement":
 			return `You are a coding agent. Implement the requested changes step by step.

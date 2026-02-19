@@ -182,29 +182,64 @@ export async function createAgentRun(db: Db, input: CreateRunInput) {
   if (payload.repo) {
     try {
       const connId = input.repo?.connectorId ?? payload.repo.connectorId;
-      if (connId) {
+      if (connId != null && connId > 0) {
         const connector = await getConnector(db, input.tenantId, connId);
         if (connector) {
           payload.repo.authToken = getConnectorToken(connector);
+        } else {
+          logger.warn({ runId: run.id, connectorId: connId }, "connector not found for repo auth enrichment");
         }
+      } else {
+        logger.warn({ runId: run.id, repositoryId: payload.repo.repositoryId }, "no connectorId — cannot enrich auth token");
       }
-    } catch {}
+    } catch (err) {
+      logger.error({ err, runId: run.id }, "failed to enrich repo auth token — clone will likely fail");
+    }
+
+    logger.info(
+      {
+        runId: run.id,
+        hasAuthToken: !!payload.repo.authToken,
+        authTokenLength: payload.repo.authToken?.length ?? 0,
+        connectorId: payload.repo.connectorId,
+        repoName: `${payload.repo.owner}/${payload.repo.name}`,
+      },
+      "repo auth enrichment result",
+    );
   }
 
   // Enrich auth tokens for multi-repo candidates (grouped by connectorId to avoid duplicate decryptions)
   if (payload.repos && payload.repos.length > 0) {
     const tokenCache = new Map<number, string>();
+    let enrichedCount = 0;
+    let skippedCount = 0;
     for (const r of payload.repos) {
-      if (!r.connectorId) continue;
+      if (!r.connectorId) {
+        skippedCount++;
+        continue;
+      }
       if (!tokenCache.has(r.connectorId)) {
         try {
           const connector = await getConnector(db, input.tenantId, r.connectorId);
-          if (connector) tokenCache.set(r.connectorId, getConnectorToken(connector));
-        } catch {}
+          if (connector) {
+            tokenCache.set(r.connectorId, getConnectorToken(connector));
+          } else {
+            logger.warn({ runId: run.id, connectorId: r.connectorId }, "connector not found for multi-repo enrichment");
+          }
+        } catch (err) {
+          logger.error({ err, runId: run.id, connectorId: r.connectorId }, "failed to enrich multi-repo auth token");
+        }
       }
       const token = tokenCache.get(r.connectorId);
-      if (token) r.authToken = token;
+      if (token) {
+        r.authToken = token;
+        enrichedCount++;
+      }
     }
+    logger.info(
+      { runId: run.id, totalRepos: payload.repos.length, enrichedCount, skippedCount, uniqueConnectors: tokenCache.size },
+      "multi-repo auth enrichment complete",
+    );
   }
 
   // 6. Dispatch: Daytona (if SANDBOX_PROVIDER=daytona) → K8s → Trigger.dev

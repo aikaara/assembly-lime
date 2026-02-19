@@ -7,7 +7,8 @@ export type AgentRunStatus =
   | "completed"
   | "failed"
   | "cancelled"
-  | "awaiting_approval";
+  | "awaiting_approval"
+  | "plan_approved";
 
 export type PreviewDeploymentStatus =
   | "pending"
@@ -122,6 +123,15 @@ export type AgentEvent =
       sandboxId: string;
       sandboxUrl: string;
       provider: "daytona";
+    }
+  | {
+      type: "tasks";
+      tasks: Array<{
+        ticketId: string;
+        title: string;
+        description?: string;
+        status: "pending" | "in_progress" | "completed";
+      }>;
     };
 
 

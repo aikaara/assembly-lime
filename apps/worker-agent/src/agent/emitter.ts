@@ -58,7 +58,7 @@ export class AgentEventEmitter {
   }
 
   async emitStatus(
-    status: "queued" | "running" | "completed" | "failed" | "cancelled" | "awaiting_approval",
+    status: "queued" | "running" | "completed" | "failed" | "cancelled" | "awaiting_approval" | "plan_approved",
     message?: string
   ): Promise<void> {
     await this.emit({ type: "status", status, message });
@@ -112,5 +112,26 @@ export class AgentEventEmitter {
 
   async emitCodeDiff(data: CodeDiffData): Promise<void> {
     await this.postInternal("code-diffs", data);
+  }
+
+  async emitTasks(
+    tasks: Array<{ title: string; description?: string }>
+  ): Promise<Array<{ ticketId: string; title: string }>> {
+    const res = await fetch(`${this.baseUrl}/internal/agent-tasks/${this.runId}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-internal-key": INTERNAL_KEY,
+      },
+      body: JSON.stringify({ tasks }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Failed to create tasks: ${res.status} ${text}`);
+    }
+
+    const data = (await res.json()) as { tickets: Array<{ ticketId: string; title: string }> };
+    return data.tickets;
   }
 }

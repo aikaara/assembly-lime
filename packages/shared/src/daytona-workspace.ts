@@ -46,6 +46,16 @@ export class DaytonaWorkspace {
     const authUser = opts.repo.authToken ? "x-access-token" : undefined;
     const authPass = opts.repo.authToken || undefined;
 
+    console.log("[DaytonaWorkspace.create]", {
+      cloneUrl: opts.repo.cloneUrl,
+      repoDir,
+      branch,
+      hasAuthUser: !!authUser,
+      hasAuthPass: !!authPass,
+      authTokenLength: opts.repo.authToken?.length ?? 0,
+      sandboxId: sandbox.id,
+    });
+
     await sandbox.git.clone(
       opts.repo.cloneUrl,
       repoDir,

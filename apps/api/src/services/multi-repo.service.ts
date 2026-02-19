@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import type { Db } from "@assembly-lime/shared/db";
 import {
   agentRunRepos,
@@ -90,7 +90,7 @@ export async function resolveReposForRun(
 
   if (projRepos.length > 0) return projRepos;
 
-  // Final fallback: all tenant repos (when project has no explicit repo links)
+  // Final fallback: most recently updated tenant repos (capped to 10 to avoid cloning 80+ repos)
   const tenantRepos = await db
     .select({
       repositoryId: repositories.id,
@@ -107,8 +107,11 @@ export async function resolveReposForRun(
         eq(repositories.tenantId, tenantId),
         eq(repositories.isEnabled, true)
       )
-    );
+    )
+    .orderBy(desc(repositories.createdAt))
+    .limit(10);
 
+  log.info({ tenantId, projectId, fallbackCount: tenantRepos.length }, "using capped tenant repos fallback");
   return tenantRepos;
 }
 

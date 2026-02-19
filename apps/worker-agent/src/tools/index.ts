@@ -28,6 +28,7 @@ import {
 } from "./git.js";
 import { createPRTool, type PRContext } from "./create-pr.js";
 import { createSubagentTool } from "./subagent.js";
+import { createTasksTool } from "./create-tasks.js";
 import type { AgentEventEmitter } from "../agent/emitter.js";
 
 export interface BuildToolSetOptions {
@@ -78,9 +79,15 @@ export function buildToolSet(
 	let tools: AgentTool<any>[];
 
 	switch (mode) {
-		case "plan":
+		case "plan": {
 			tools = [bash, read, grep, find, ls, gitStatus, gitDiff];
+			if (options.emitter) {
+				const tasksTool = createTasksTool(options.emitter);
+				registry.set(tasksTool.name, tasksTool);
+				tools.push(tasksTool);
+			}
 			break;
+		}
 
 		case "review":
 			tools = [bash, read, grep, find, ls, gitStatus, gitDiff];

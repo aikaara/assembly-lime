@@ -73,6 +73,8 @@ export const tickets = pgTable(
     branch: text("branch"),
     prUrl: text("pr_url"),
     statusMetaJson: jsonb("status_meta_json").notNull().default({}),
+    parentTicketId: bigint("parent_ticket_id", { mode: "number" }),
+    agentRunId: bigint("agent_run_id", { mode: "number" }),
     createdBy: bigint("created_by", { mode: "number" }).references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -82,5 +84,7 @@ export const tickets = pgTable(
     index("tickets_tenant_assignee_idx").on(t.tenantId, t.assigneeUserId),
     index("tickets_tenant_repo_idx").on(t.tenantId, t.repositoryId),
     index("tickets_tenant_updated_idx").on(t.tenantId, t.updatedAt),
+    index("tickets_tenant_parent_idx").on(t.tenantId, t.parentTicketId),
+    index("tickets_tenant_agent_run_idx").on(t.tenantId, t.agentRunId),
   ]
 );

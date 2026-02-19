@@ -89,7 +89,7 @@ export async function selectRepo(
   }
 
   try {
-    const model = getModel("amazon-bedrock", "anthropic.claude-haiku-4-5-20251001-v1:0");
+    const model = getModel("amazon-bedrock", "us.anthropic.claude-haiku-4-5-20251001-v1:0");
 
     const result = await completeSimple(model, {
       systemPrompt: SYSTEM_PROMPT,

@@ -2,9 +2,10 @@ import { Elysia, t } from "elysia";
 import { eq } from "drizzle-orm";
 import { timingSafeEqual } from "crypto";
 import type { Db } from "@assembly-lime/shared/db";
-import { agentEvents, agentRuns, llmCallDumps, agentRunRepos, codeDiffs } from "@assembly-lime/shared/db/schema";
+import { agentEvents, agentRuns, llmCallDumps, agentRunRepos, codeDiffs, tickets } from "@assembly-lime/shared/db/schema";
 import type { AgentEvent } from "@assembly-lime/shared";
 import { broadcastToWs } from "./ws";
+import { createTicket } from "../services/project.service";
 import { childLogger } from "../lib/logger";
 
 const log = childLogger({ module: "internal-events" });
@@ -224,6 +225,92 @@ export function internalEventRoutes(db: Db) {
         });
 
         return { ok: true };
+      },
+      {
+        params: t.Object({ runId: t.String() }),
+      }
+    )
+    .post(
+      "/agent-tasks/:runId",
+      async ({ request, params, body, set }) => {
+        const key = request.headers.get("x-internal-key");
+        if (!key || !verifyInternalKey(key)) {
+          set.status = 401;
+          return { error: "unauthorized" };
+        }
+
+        const runId = Number(params.runId);
+        if (Number.isNaN(runId)) {
+          set.status = 400;
+          return { error: "invalid runId" };
+        }
+
+        const [run] = await db
+          .select({
+            tenantId: agentRuns.tenantId,
+            projectId: agentRuns.projectId,
+            ticketId: agentRuns.ticketId,
+          })
+          .from(agentRuns)
+          .where(eq(agentRuns.id, runId));
+        if (!run) {
+          set.status = 404;
+          return { error: "run not found" };
+        }
+
+        const data = body as { tasks: Array<{ title: string; description?: string }> };
+        if (!data.tasks || !Array.isArray(data.tasks) || data.tasks.length === 0) {
+          set.status = 400;
+          return { error: "tasks array is required" };
+        }
+
+        const createdTickets: Array<{ ticketId: string; title: string }> = [];
+
+        for (const task of data.tasks) {
+          const ticket = await createTicket(
+            db,
+            run.tenantId,
+            run.projectId,
+            {
+              title: task.title,
+              descriptionMd: task.description,
+              columnKey: "todo",
+              labelsJson: ["agent-planned"],
+            },
+          );
+
+          // Set parentTicketId and agentRunId on the created ticket
+          await db
+            .update(tickets)
+            .set({
+              parentTicketId: run.ticketId ?? undefined,
+              agentRunId: runId,
+            })
+            .where(eq(tickets.id, Number(ticket.id)));
+
+          createdTickets.push({ ticketId: ticket.id, title: ticket.title });
+        }
+
+        // Broadcast tasks event via WebSocket
+        const tasksEvent: AgentEvent = {
+          type: "tasks",
+          tasks: createdTickets.map((t) => ({
+            ticketId: t.ticketId,
+            title: t.title,
+            status: "pending" as const,
+          })),
+        };
+
+        await db.insert(agentEvents).values({
+          tenantId: run.tenantId,
+          agentRunId: runId,
+          type: "tasks",
+          payloadJson: tasksEvent,
+        });
+        broadcastToWs(runId, tasksEvent);
+
+        log.info({ runId, taskCount: createdTickets.length }, "agent tasks created");
+        return { ok: true, tickets: createdTickets };
       },
       {
         params: t.Object({ runId: t.String() }),
