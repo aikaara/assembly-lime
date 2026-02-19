@@ -26,6 +26,7 @@ export default defineConfig({
           "@sinclair/typebox",
           "ajv",
           "ajv-formats",
+          "diff",
           "openai",
           "partial-json",
           "pino",

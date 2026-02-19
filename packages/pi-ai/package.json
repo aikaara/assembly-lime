@@ -16,6 +16,8 @@
     "ajv-formats": "^3.0.1",
     "openai": "6.10.0",
     "partial-json": "^0.1.7",
-    "undici": "^7.19.1"
+    "undici": "^7.19.1",
+    "@smithy/node-http-handler": "4.4.10",
+    "proxy-agent": "6.5.0"
   }
 }

@@ -6,6 +6,7 @@
   "dependencies": {
     "@assembly-lime/pi-ai": "workspace:*",
     "@assembly-lime/pi-agent": "workspace:*",
+    "@assembly-lime/pi-coding-agent-tools": "workspace:*",
     "@assembly-lime/shared": "workspace:*",
     "@sinclair/typebox": "^0.34.41",
     "pino": "^9.6.0"

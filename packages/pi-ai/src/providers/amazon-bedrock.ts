@@ -112,8 +112,8 @@ export const streamBedrock: StreamFunction<"bedrock-converse-stream", BedrockOpt
 				process.env.https_proxy ||
 				process.env.no_proxy
 			) {
-				const nodeHttpHandler = await import("@smithy/node-http-handler");
-				const proxyAgent = await import("proxy-agent");
+				const nodeHttpHandler = await import("@smithy/node-http-handler").catch(() => null);
+				const proxyAgent = await import("proxy-agent").catch(() => null);
 
 				const agent = new proxyAgent.ProxyAgent();
 
