@@ -2,7 +2,7 @@ import { Elysia, t } from "elysia";
 import { eq } from "drizzle-orm";
 import { timingSafeEqual } from "crypto";
 import type { Db } from "@assembly-lime/shared/db";
-import { agentEvents, agentRuns } from "@assembly-lime/shared/db/schema";
+import { agentEvents, agentRuns, llmCallDumps, agentRunRepos, codeDiffs } from "@assembly-lime/shared/db/schema";
 import type { AgentEvent } from "@assembly-lime/shared";
 import { broadcastToWs } from "./ws";
 import { childLogger } from "../lib/logger";
@@ -71,12 +71,157 @@ export function internalEventRoutes(db: Db) {
             if (event.message) {
               updates.outputSummary = event.message;
             }
+          } else if (event.status === "awaiting_approval") {
+            // Don't set endedAt — run is still alive with preview
+            if (event.message) {
+              updates.outputSummary = event.message;
+            }
           }
           await db.update(agentRuns).set(updates).where(eq(agentRuns.id, runId));
         }
 
         // 4. Broadcast to WebSocket
         broadcastToWs(runId, event);
+
+        return { ok: true };
+      },
+      {
+        params: t.Object({ runId: t.String() }),
+      }
+    )
+    .post(
+      "/llm-call-dumps/:runId",
+      async ({ request, params, body, set }) => {
+        const key = request.headers.get("x-internal-key");
+        if (!key || !verifyInternalKey(key)) {
+          set.status = 401;
+          return { error: "unauthorized" };
+        }
+
+        const runId = Number(params.runId);
+        if (Number.isNaN(runId)) {
+          set.status = 400;
+          return { error: "invalid runId" };
+        }
+
+        const dump = body as any;
+
+        const [run] = await db
+          .select({ tenantId: agentRuns.tenantId })
+          .from(agentRuns)
+          .where(eq(agentRuns.id, runId));
+        if (!run) {
+          set.status = 404;
+          return { error: "run not found" };
+        }
+
+        await db.insert(llmCallDumps).values({
+          tenantId: run.tenantId,
+          agentRunId: runId,
+          turnNumber: dump.turnNumber ?? 0,
+          model: dump.model ?? "unknown",
+          provider: dump.provider ?? "unknown",
+          systemPromptHash: dump.systemPromptHash ?? null,
+          messagesJson: dump.messagesJson ?? null,
+          responseJson: dump.responseJson ?? null,
+          inputTokens: dump.inputTokens ?? 0,
+          outputTokens: dump.outputTokens ?? 0,
+          cacheReadTokens: dump.cacheReadTokens ?? 0,
+          cacheWriteTokens: dump.cacheWriteTokens ?? 0,
+          totalTokens: dump.totalTokens ?? 0,
+          costCents: dump.costCents ?? 0,
+          stopReason: dump.stopReason ?? null,
+          durationMs: dump.durationMs ?? null,
+        });
+
+        return { ok: true };
+      },
+      {
+        params: t.Object({ runId: t.String() }),
+      }
+    )
+    .post(
+      "/agent-run-repos/:runId",
+      async ({ request, params, body, set }) => {
+        const key = request.headers.get("x-internal-key");
+        if (!key || !verifyInternalKey(key)) {
+          set.status = 401;
+          return { error: "unauthorized" };
+        }
+
+        const runId = Number(params.runId);
+        if (Number.isNaN(runId)) {
+          set.status = 400;
+          return { error: "invalid runId" };
+        }
+
+        const data = body as any;
+
+        const [run] = await db
+          .select({ tenantId: agentRuns.tenantId })
+          .from(agentRuns)
+          .where(eq(agentRuns.id, runId));
+        if (!run) {
+          set.status = 404;
+          return { error: "run not found" };
+        }
+
+        await db.insert(agentRunRepos).values({
+          tenantId: run.tenantId,
+          agentRunId: runId,
+          repositoryId: data.repositoryId,
+          branch: data.branch,
+          status: data.status ?? "pending",
+          diffSummary: data.diffSummary ?? null,
+        }).onConflictDoUpdate({
+          target: [agentRunRepos.agentRunId, agentRunRepos.repositoryId],
+          set: {
+            status: data.status ?? "pending",
+            diffSummary: data.diffSummary ?? null,
+          },
+        });
+
+        return { ok: true };
+      },
+      {
+        params: t.Object({ runId: t.String() }),
+      }
+    )
+    .post(
+      "/code-diffs/:runId",
+      async ({ request, params, body, set }) => {
+        const key = request.headers.get("x-internal-key");
+        if (!key || !verifyInternalKey(key)) {
+          set.status = 401;
+          return { error: "unauthorized" };
+        }
+
+        const runId = Number(params.runId);
+        if (Number.isNaN(runId)) {
+          set.status = 400;
+          return { error: "invalid runId" };
+        }
+
+        const data = body as any;
+
+        const [run] = await db
+          .select({ tenantId: agentRuns.tenantId })
+          .from(agentRuns)
+          .where(eq(agentRuns.id, runId));
+        if (!run) {
+          set.status = 404;
+          return { error: "run not found" };
+        }
+
+        await db.insert(codeDiffs).values({
+          tenantId: run.tenantId,
+          agentRunId: runId,
+          repositoryId: data.repositoryId,
+          baseRef: data.baseRef,
+          headRef: data.headRef,
+          unifiedDiff: data.unifiedDiff,
+          summary: data.summary ?? null,
+        });
 
         return { ok: true };
       },

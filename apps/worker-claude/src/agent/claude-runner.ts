@@ -29,6 +29,7 @@ export async function runClaudeAgent(
         allowDangerouslySkipPermissions: true,
         model: "sonnet",
         maxTurns: 25,
+        pathToClaudeCodeExecutable: process.env.CLAUDE_CODE_PATH || "claude",
         env: {
           ...(process.env as Record<string, string>),
         },

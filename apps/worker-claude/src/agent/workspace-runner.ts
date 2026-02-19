@@ -45,6 +45,7 @@ export async function runWorkspaceAgent(
         allowDangerouslySkipPermissions: true,
         model: "sonnet",
         maxTurns: 40,
+        pathToClaudeCodeExecutable: process.env.CLAUDE_CODE_PATH || "claude",
         env: {
           ...(process.env as Record<string, string>),
         },

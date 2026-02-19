@@ -21,6 +21,7 @@ export default defineConfig({
         packages: [
           "@anthropic-ai/claude-agent-sdk",
           "@anthropic-ai/sdk",
+          "@aws-sdk/client-bedrock-runtime",
           "@daytonaio/sdk",
           "@kubernetes/client-node",
           "@sinclair/typebox",

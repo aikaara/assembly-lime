@@ -26,10 +26,11 @@ export interface BuildSystemPromptOptions {
 	resolvedPrompt?: string;
 	selectedTools: string[];
 	cwd: string;
+	repos?: Array<{ name: string; path: string; primary: boolean }>;
 }
 
 export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
-	const { mode, resolvedPrompt, selectedTools, cwd } = options;
+	const { mode, resolvedPrompt, selectedTools, cwd, repos } = options;
 
 	const now = new Date();
 	const dateTime = now.toLocaleString("en-US", {
@@ -65,7 +66,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 	}
 
 	if (hasRead && hasEdit) {
-		guidelines.push("Use read to examine files before editing");
+		guidelines.push("Use read to examine files before editing. Do not use cat or sed.");
 	}
 
 	if (hasEdit) {
@@ -84,36 +85,38 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 	guidelines.push("Show file paths clearly when working with files");
 
 	// Mode-specific preamble
-	let modePreamble: string;
-	switch (mode) {
-		case "plan":
-			modePreamble = `You are a planning agent. Explore the codebase, understand the architecture, and produce a detailed implementation plan. Do NOT make any changes — only read and analyze.`;
-			break;
-		case "implement":
-			modePreamble = `You are a coding agent. Implement the requested changes by reading, editing, writing, and testing code. Commit and push your work when done.`;
-			break;
-		case "bugfix":
-			modePreamble = `You are a debugging agent. Investigate the reported issue, identify the root cause, implement a fix, and verify it works. Commit and push your fix when done.`;
-			break;
-		case "review":
-			modePreamble = `You are a code review agent. Examine the code for bugs, security issues, performance problems, and style concerns. Provide constructive feedback with specific file/line references.`;
-			break;
-		default:
-			modePreamble = `You are a coding agent. Help the user with their request.`;
-	}
+	const modePreamble = getModePreamble(mode);
 
 	const guidelinesText = guidelines.map((g) => `- ${g}`).join("\n");
 
 	let prompt = `${modePreamble}
 
-Available tools:
+# Available Tools
+
 ${toolsList}
 
-Guidelines:
+# Guidelines
+
 ${guidelinesText}
 
 Current date and time: ${dateTime}
 Current working directory: ${cwd}`;
+
+	// Multi-repo context
+	if (repos && repos.length > 1) {
+		const repoLines = repos.map((r) => {
+			const tag = r.primary ? "PRIMARY" : "       ";
+			return `- ${tag}: ${r.name} at ${r.path}${r.primary ? " (this is your working directory)" : ""}`;
+		});
+		prompt += `
+
+# Repository Layout
+
+You have access to the following repositories:
+${repoLines.join("\n")}
+
+When making changes that span multiple repositories, work on one repo at a time. Use \`cd\` or absolute paths to switch between repos.`;
+	}
 
 	// Append resolved prompt (instruction resolution chain from API)
 	if (resolvedPrompt) {
@@ -121,4 +124,47 @@ Current working directory: ${cwd}`;
 	}
 
 	return prompt;
+}
+
+function getModePreamble(mode: AgentMode): string {
+	switch (mode) {
+		case "plan":
+			return `You are a planning agent. Your job is to explore the codebase, understand the architecture, and produce a detailed implementation plan.
+
+Approach:
+1. First, explore the project structure (package.json, directory layout, key config files)
+2. Identify the relevant files and components for the user's request
+3. Analyze dependencies and potential risks
+4. Produce a numbered plan with specific files, functions, and changes
+
+Do NOT make any changes — only read and analyze. Output your plan as a structured list.`;
+
+		case "implement":
+			return `You are a coding agent. Implement the requested changes step by step.
+
+Approach:
+1. Understand the request — read relevant files first
+2. Plan your changes before editing
+3. Make changes incrementally — edit one file at a time, verify after each change
+4. Run tests if available (look for test scripts in package.json)
+5. Commit and push your work when done
+
+When working on a large task, break it into numbered steps and report progress as you complete each one.`;
+
+		case "bugfix":
+			return `You are a debugging agent. Find and fix the reported issue.
+
+Approach:
+1. Reproduce — understand the symptoms and find relevant code
+2. Diagnose — read the code, check logs, identify root cause
+3. Fix — make the minimal change needed
+4. Verify — run tests or check the fix manually
+5. Commit and push when the fix is verified`;
+
+		case "review":
+			return `You are a code review agent. Examine the code for bugs, security issues, performance problems, and style concerns. Provide constructive feedback with specific file/line references.`;
+
+		default:
+			return `You are a coding agent. Help the user with their request.`;
+	}
 }

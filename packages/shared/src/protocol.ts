@@ -6,7 +6,8 @@ export type AgentRunStatus =
   | "running"
   | "completed"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "awaiting_approval";
 
 export type PreviewDeploymentStatus =
   | "pending"
@@ -68,9 +69,17 @@ export type AgentJobPayload = {
   };
   repos?: Array<{
     repositoryId: number;
+    connectorId: number;
+    owner: string;
+    name: string;
+    fullName: string;
     cloneUrl: string;
     defaultBranch: string;
     ref?: string;
+    roleLabel?: string;
+    notes?: string;
+    isPrimary?: boolean;
+    authToken?: string;
   }>;
   constraints?: {
     timeBudgetSec?: number;

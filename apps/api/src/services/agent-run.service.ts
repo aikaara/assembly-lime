@@ -15,7 +15,7 @@ import { getConnector, getConnectorToken } from "./connector.service";
 import { getDecryptedEnvVars } from "./env-var.service";
 import { tenantNamespace, ensureGitCredentialSecret } from "./namespace-provisioner.service";
 import { launchAgentK8sJob } from "./k8s-job-launcher.service";
-import { resolveReposForRun, type RepoInfo } from "./multi-repo.service";
+import { resolveReposForRun, repoRoleLabel, type RepoInfo } from "./multi-repo.service";
 import { logger } from "../lib/logger";
 
 type CreateRunInput = {
@@ -86,13 +86,25 @@ export async function createAgentRun(db: Db, input: CreateRunInput) {
     || (process.env.DAYTONA_API_KEY ? "daytona" : undefined);
   let resolvedRepos: RepoInfo[] | undefined;
 
-  if (!input.repo && sandboxProvider === "daytona") {
+  logger.info(
+    {
+      runId: run.id,
+      sandboxProvider,
+      hasSandboxProviderEnv: !!process.env.SANDBOX_PROVIDER,
+      hasDaytonaApiKey: !!process.env.DAYTONA_API_KEY,
+      hasInputRepo: !!input.repo,
+    },
+    "sandbox provider detection",
+  );
+
+  if (!input.repo) {
     resolvedRepos = await resolveReposForRun(db, input.tenantId, input.projectId);
     if (resolvedRepos.length === 0) {
-      throw new Error("No repositories linked to this project — cannot run agent without a sandbox");
-    }
-    if (resolvedRepos.length === 1) {
-      // Single repo — promote to input.repo for standard single-repo path
+      // Clean up the queued run — it can never succeed without a repo
+      await db.update(agentRuns).set({ status: "failed", endedAt: new Date(), outputSummary: "No repository found for this project" }).where(eq(agentRuns.id, run.id));
+      throw new Error("No repository found for this project. Please associate a repository with the project first.");
+    } else if (resolvedRepos.length === 1) {
+      // Single repo: promote directly — no LLM selection needed
       const r = resolvedRepos[0]!;
       input.repo = {
         repositoryId: r.repositoryId,
@@ -107,12 +119,23 @@ export async function createAgentRun(db: Db, input: CreateRunInput) {
         "auto-resolved single repo for run",
       );
     } else {
+      // Multiple repos: leave input.repo undefined — worker will LLM-select
       logger.info(
-        { runId: run.id, repoCount: resolvedRepos.length },
-        "auto-resolved multiple repos for run",
+        { runId: run.id, totalRepos: resolvedRepos.length },
+        "multiple repos resolved — worker will select via LLM",
       );
     }
   }
+
+  logger.info(
+    {
+      runId: run.id,
+      resolvedRepoCount: resolvedRepos?.length ?? 0,
+      hasPayloadRepo: !!input.repo,
+      willSetSandbox: sandboxProvider === "daytona" && !!(input.repo || (resolvedRepos && resolvedRepos.length > 0)),
+    },
+    "pre-dispatch sandbox decision",
+  );
 
   // 5. Build job payload
   const payload: AgentJobPayload = {
@@ -136,20 +159,27 @@ export async function createAgentRun(db: Db, input: CreateRunInput) {
           allowedPaths: input.repo.allowedPaths,
         }
       : undefined,
-    // Multi-repo: only set when multiple repos were auto-resolved
+    // Multi-repo: set when multiple repos were auto-resolved (worker selects primary via LLM)
     repos: resolvedRepos && resolvedRepos.length > 1
       ? resolvedRepos.map((r) => ({
           repositoryId: r.repositoryId,
+          connectorId: r.connectorId,
+          owner: r.owner,
+          name: r.name,
+          fullName: r.fullName,
           cloneUrl: r.cloneUrl,
           defaultBranch: r.defaultBranch,
+          roleLabel: repoRoleLabel(r.repoRole),
+          notes: r.notes ?? undefined,
+          isPrimary: r.isPrimary ?? undefined,
         }))
       : undefined,
     constraints: input.constraints,
     images: input.images,
   };
 
-  // Enrich repo auth token for Daytona before dispatching (if needed)
-  if (payload.repo && sandboxProvider === "daytona") {
+  // Enrich repo auth token before dispatching (needed for clone + PR creation)
+  if (payload.repo) {
     try {
       const connId = input.repo?.connectorId ?? payload.repo.connectorId;
       if (connId) {
@@ -159,6 +189,22 @@ export async function createAgentRun(db: Db, input: CreateRunInput) {
         }
       }
     } catch {}
+  }
+
+  // Enrich auth tokens for multi-repo candidates (grouped by connectorId to avoid duplicate decryptions)
+  if (payload.repos && payload.repos.length > 0) {
+    const tokenCache = new Map<number, string>();
+    for (const r of payload.repos) {
+      if (!r.connectorId) continue;
+      if (!tokenCache.has(r.connectorId)) {
+        try {
+          const connector = await getConnector(db, input.tenantId, r.connectorId);
+          if (connector) tokenCache.set(r.connectorId, getConnectorToken(connector));
+        } catch {}
+      }
+      const token = tokenCache.get(r.connectorId);
+      if (token) r.authToken = token;
+    }
   }
 
   // 6. Dispatch: Daytona (if SANDBOX_PROVIDER=daytona) → K8s → Trigger.dev

@@ -15,9 +15,25 @@ export type RepoInfo = {
   connectorId: number;
   owner: string;
   name: string;
+  fullName: string;
   cloneUrl: string;
   defaultBranch: string;
+  repoRole?: number;
+  isPrimary?: boolean;
+  notes?: string;
 };
+
+export function repoRoleLabel(role?: number): string | undefined {
+  const map: Record<number, string> = {
+    10: "backend",
+    20: "frontend",
+    30: "web_sdk",
+    31: "ios_sdk",
+    32: "android_sdk",
+    50: "infra",
+  };
+  return role != null ? map[role] : undefined;
+}
 
 export async function resolveReposForRun(
   db: Db,
@@ -33,6 +49,7 @@ export async function resolveReposForRun(
         connectorId: repositories.connectorId,
         owner: repositories.owner,
         name: repositories.name,
+        fullName: repositories.fullName,
         cloneUrl: repositories.cloneUrl,
         defaultBranch: repositories.defaultBranch,
       })
@@ -55,8 +72,12 @@ export async function resolveReposForRun(
       connectorId: repositories.connectorId,
       owner: repositories.owner,
       name: repositories.name,
+      fullName: repositories.fullName,
       cloneUrl: repositories.cloneUrl,
       defaultBranch: repositories.defaultBranch,
+      repoRole: projectRepositories.repoRole,
+      isPrimary: projectRepositories.isPrimary,
+      notes: projectRepositories.notes,
     })
     .from(projectRepositories)
     .innerJoin(repositories, eq(projectRepositories.repositoryId, repositories.id))
@@ -76,6 +97,7 @@ export async function resolveReposForRun(
       connectorId: repositories.connectorId,
       owner: repositories.owner,
       name: repositories.name,
+      fullName: repositories.fullName,
       cloneUrl: repositories.cloneUrl,
       defaultBranch: repositories.defaultBranch,
     })

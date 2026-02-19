@@ -2,75 +2,64 @@ import type { AgentEvent as PiAgentEvent } from "@assembly-lime/pi-agent";
 import type { AgentEventEmitter } from "./emitter";
 import type { Logger } from "pino";
 
+export interface BridgeEventsOpts {
+  onMaxTurns?: () => void;
+  maxTurns?: number;
+}
+
+export interface EventBridge {
+  handler: (event: PiAgentEvent) => void;
+  getTurnNumber: () => number;
+}
+
 /**
  * Bridge pi-agent events to assemblyLime agent events (HTTP POST to API).
  *
- * Text deltas are batched with a 200ms flush timer to avoid flooding
- * the API with per-token HTTP POSTs.
- *
- * Enhanced for:
- * - Edit tool diff emission
- * - Subagent progress streaming
- * - Bash output streaming
+ * Text is accumulated per turn and emitted as ONE complete message on turn_end.
+ * Tool diffs and bash output are emitted as they happen.
  */
 export function bridgeEvents(
   emitter: AgentEventEmitter,
   log: Logger,
-): (event: PiAgentEvent) => void {
-  let textBuffer = "";
-  let thinkingBuffer = "";
-  let flushTimer: ReturnType<typeof setTimeout> | null = null;
-  const FLUSH_INTERVAL = 200;
+  opts?: BridgeEventsOpts,
+): EventBridge {
+  let turnTextBuffer = "";
+  let turnThinkingBuffer = "";
 
-  function scheduleFlush() {
-    if (flushTimer) return;
-    flushTimer = setTimeout(() => {
-      flushTimer = null;
-      flush();
-    }, FLUSH_INTERVAL);
-  }
+  let turnNumber = 0;
+  let turnStartTime = 0;
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
-  function flush() {
-    if (textBuffer) {
-      emitter.emitMessage("assistant", textBuffer).catch(() => {});
-      textBuffer = "";
-    }
-    if (thinkingBuffer) {
-      emitter.emitLog(`thinking: ${thinkingBuffer}`).catch(() => {});
-      thinkingBuffer = "";
-    }
-  }
+  const maxTurns = opts?.maxTurns ?? 50;
 
-  return (event: PiAgentEvent) => {
+  const handler = (event: PiAgentEvent) => {
     switch (event.type) {
       case "agent_start":
         emitter.emitStatus("running").catch(() => {});
+        heartbeatTimer = setInterval(() => {
+          emitter.emitLog(`heartbeat: alive, turn ${turnNumber}`).catch(() => {});
+        }, 30_000);
         break;
 
       case "message_update": {
         const ame = event.assistantMessageEvent;
         if (ame.type === "text_delta") {
-          textBuffer += ame.delta;
-          scheduleFlush();
+          turnTextBuffer += ame.delta;
         } else if (ame.type === "thinking_delta") {
-          thinkingBuffer += ame.delta;
-          scheduleFlush();
+          turnThinkingBuffer += ame.delta;
         }
         break;
       }
 
       case "tool_execution_start":
-        flush();
         emitter.emitLog(`tool: ${event.toolName}`).catch(() => {});
         break;
 
       case "tool_execution_update": {
-        // Stream bash output and subagent progress as log events
         const partial = event.partialResult;
         if (event.toolName === "bash" && partial?.content?.[0]?.type === "text") {
           const text = partial.content[0].text;
           if (text) {
-            // Only emit meaningful updates (not empty)
             const lastLine = text.split("\n").filter((l: string) => l.trim()).pop();
             if (lastLine) {
               emitter.emitLog(`bash: ${lastLine.slice(0, 200)}`).catch(() => {});
@@ -90,7 +79,6 @@ export function bridgeEvents(
               : "unknown error";
           emitter.emitLog(`tool error (${event.toolName}): ${errText}`).catch(() => {});
         } else if (event.toolName === "edit") {
-          // Emit diff from edit tool result details
           const diff = event.result?.details?.diff;
           if (diff) {
             emitter.emitDiff(diff, `Edit: ${event.args?.path ?? "unknown file"}`).catch(() => {});
@@ -107,11 +95,79 @@ export function bridgeEvents(
         break;
       }
 
+      case "turn_start":
+        turnNumber++;
+        turnStartTime = Date.now();
+        turnTextBuffer = "";
+        turnThinkingBuffer = "";
+
+        if (turnNumber > maxTurns && opts?.onMaxTurns) {
+          log.warn({ turnNumber, maxTurns }, "max turns reached, triggering safety callback");
+          opts.onMaxTurns();
+        }
+        break;
+
+      case "turn_end": {
+        // Emit complete assistant message for this turn
+        if (turnTextBuffer) {
+          emitter.emitMessage("assistant", turnTextBuffer).catch(() => {});
+        }
+        if (turnThinkingBuffer) {
+          emitter.emitLog(`thinking: ${turnThinkingBuffer}`).catch(() => {});
+        }
+        turnTextBuffer = "";
+        turnThinkingBuffer = "";
+
+        // Emit LLM call dump
+        const msg = event.message as any;
+        const durationMs = turnStartTime > 0 ? Date.now() - turnStartTime : undefined;
+
+        if (msg?.role === "assistant") {
+          const u = msg.usage;
+          log.info(
+            { turnNumber, role: msg.role, hasUsage: !!u, model: msg.model, stopReason: msg.stopReason },
+            "turn_end: capturing LLM call dump",
+          );
+          emitter
+            .emitLlmCallDump({
+              turnNumber,
+              model: msg.model ?? "unknown",
+              provider: String(msg.provider ?? "unknown"),
+              responseJson: msg.content,
+              inputTokens: u?.input ?? 0,
+              outputTokens: u?.output ?? 0,
+              cacheReadTokens: u?.cacheRead ?? 0,
+              cacheWriteTokens: u?.cacheWrite ?? 0,
+              totalTokens: u?.totalTokens ?? 0,
+              costCents: (u?.cost?.total ?? 0) * 100,
+              stopReason: msg.stopReason,
+              durationMs,
+            })
+            .catch((err) => log.warn({ err }, "failed to emit LLM call dump"));
+        } else {
+          log.warn(
+            { turnNumber, role: msg?.role, type: typeof msg },
+            "turn_end: message is not an assistant message, skipping LLM dump",
+          );
+        }
+        break;
+      }
+
       case "agent_end": {
-        flush();
-        if (flushTimer) {
-          clearTimeout(flushTimer);
-          flushTimer = null;
+        // Clear heartbeat
+        if (heartbeatTimer) {
+          clearInterval(heartbeatTimer);
+          heartbeatTimer = null;
+        }
+
+        // Emit any remaining buffered text
+        if (turnTextBuffer) {
+          emitter.emitMessage("assistant", turnTextBuffer).catch(() => {});
+          turnTextBuffer = "";
+        }
+        if (turnThinkingBuffer) {
+          emitter.emitLog(`thinking: ${turnThinkingBuffer}`).catch(() => {});
+          turnThinkingBuffer = "";
         }
 
         const msgs = event.messages;
@@ -137,11 +193,14 @@ export function bridgeEvents(
         break;
       }
 
-      case "turn_start":
-      case "turn_end":
       case "message_start":
       case "message_end":
         break;
     }
+  };
+
+  return {
+    handler,
+    getTurnNumber: () => turnNumber,
   };
 }

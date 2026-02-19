@@ -96,6 +96,12 @@ export const streamBedrock: StreamFunction<"bedrock-converse-stream", BedrockOpt
 		if (typeof process !== "undefined" && (process.versions?.node || process.versions?.bun)) {
 			config.region = config.region || process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION;
 
+			// Bedrock API keys (bearer token auth)
+			if (process.env.AWS_BEARER_TOKEN_BEDROCK) {
+				const token = process.env.AWS_BEARER_TOKEN_BEDROCK;
+				config.token = { token };
+			}
+
 			// Support proxies that don't need authentication
 			if (process.env.AWS_BEDROCK_SKIP_AUTH === "1") {
 				config.credentials = {
