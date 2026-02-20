@@ -4,6 +4,7 @@ import type { Db } from "@assembly-lime/shared/db";
 import { agentEvents, agentRuns, agentRunRepos, repositories, tickets } from "@assembly-lime/shared/db/schema";
 import { requireAuth } from "../middleware/auth";
 import { createAgentRun, getAgentRun } from "../services/agent-run.service";
+import { resumeAgentRun } from "../services/agent-resume.service";
 import { getConnector, getConnectorToken } from "../services/connector.service";
 import { broadcastToWs } from "./ws";
 import { childLogger } from "../lib/logger";
@@ -135,6 +136,18 @@ export function agentRunRoutes(db: Db) {
 
         broadcastToWs(runId, event);
         log.info({ runId, textLength: body.text.length }, "user message sent to agent run");
+
+        // If the worker has exited (terminal/waiting status), re-dispatch to continue
+        const workerExitedStatuses = ["completed", "awaiting_approval"];
+        if (workerExitedStatuses.includes(run.status)) {
+          log.info({ runId, previousStatus: run.status }, "worker exited — dispatching continuation");
+          try {
+            await resumeAgentRun(db, run as Parameters<typeof resumeAgentRun>[1]);
+          } catch (err) {
+            log.error({ err, runId }, "failed to dispatch agent continuation");
+            // Don't fail the request — message is stored, user can retry
+          }
+        }
 
         return { ok: true };
       },

@@ -31,6 +31,23 @@ export async function dispatchAgentRun(
   return handle;
 }
 
+// ── Agent continuation (re-dispatch for follow-up messages) ─────────
+
+export async function dispatchAgentContinuation(
+  runId: number,
+  payload: AgentJobPayload,
+) {
+  const taskId = "agent-task";
+  const handle = await tasks.trigger(taskId, payload, {
+    idempotencyKey: `run-${runId}-continue-${Date.now()}`,
+  });
+  log.info(
+    { runId, taskId, triggerRunId: handle.id },
+    "agent continuation dispatched to Trigger.dev",
+  );
+  return handle;
+}
+
 // ── Dependency scan dispatch ────────────────────────────────────────
 
 export async function dispatchDepScan(tenantId: number) {
