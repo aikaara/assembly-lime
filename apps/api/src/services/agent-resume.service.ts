@@ -4,6 +4,7 @@ import { agentRuns, agentRunRepos, repositories } from "@assembly-lime/shared/db
 import type { AgentJobPayload, AgentProviderId, AgentMode } from "@assembly-lime/shared";
 import { dispatchAgentContinuation } from "../lib/queue";
 import { getConnector, getConnectorToken } from "./connector.service";
+import { resolveReposForRun, repoRoleLabel } from "./multi-repo.service";
 import { logger } from "../lib/logger";
 
 /**
@@ -60,7 +61,7 @@ export async function resumeAgentRun(
     sandbox: { provider: "daytona" },
   };
 
-  // Attach primary repo if available
+  // Attach repo from run history, or fall back to project repos
   if (runRepos.length > 0) {
     const r = runRepos[0]!;
     payload.repo = {
@@ -83,6 +84,64 @@ export async function resumeAgentRun(
       }
     } catch (err) {
       logger.warn({ err, runId }, "failed to enrich repo auth token for continuation");
+    }
+  } else {
+    // No agent_run_repos entries — resolve from project (same as initial createAgentRun)
+    logger.info({ runId }, "no agent_run_repos — resolving repos from project");
+    const resolvedRepos = await resolveReposForRun(db, run.tenantId, run.projectId);
+
+    if (resolvedRepos.length === 1) {
+      const r = resolvedRepos[0]!;
+      payload.repo = {
+        repositoryId: r.repositoryId,
+        connectorId: r.connectorId,
+        owner: r.owner,
+        name: r.name,
+        cloneUrl: r.cloneUrl,
+        defaultBranch: r.defaultBranch,
+      };
+      // Enrich auth token
+      try {
+        if (r.connectorId) {
+          const connector = await getConnector(db, run.tenantId, r.connectorId);
+          if (connector) {
+            payload.repo.authToken = getConnectorToken(connector);
+          }
+        }
+      } catch (err) {
+        logger.warn({ err, runId }, "failed to enrich repo auth token for continuation");
+      }
+    } else if (resolvedRepos.length > 1) {
+      // Multiple repos — let the worker LLM-select
+      const tokenCache = new Map<number, string>();
+      payload.repos = resolvedRepos.map((r) => ({
+        repositoryId: r.repositoryId,
+        connectorId: r.connectorId,
+        owner: r.owner,
+        name: r.name,
+        fullName: r.fullName,
+        cloneUrl: r.cloneUrl,
+        defaultBranch: r.defaultBranch,
+        roleLabel: repoRoleLabel(r.repoRole),
+        notes: r.notes ?? undefined,
+        isPrimary: r.isPrimary ?? undefined,
+      }));
+      // Enrich auth tokens
+      for (const r of payload.repos) {
+        if (!r.connectorId) continue;
+        if (!tokenCache.has(r.connectorId)) {
+          try {
+            const connector = await getConnector(db, run.tenantId, r.connectorId);
+            if (connector) tokenCache.set(r.connectorId, getConnectorToken(connector));
+          } catch (err) {
+            logger.warn({ err, runId, connectorId: r.connectorId }, "failed to enrich multi-repo auth token");
+          }
+        }
+        const token = tokenCache.get(r.connectorId);
+        if (token) r.authToken = token;
+      }
+    } else {
+      logger.warn({ runId }, "no repos found for project — continuation will likely fail");
     }
   }
 
