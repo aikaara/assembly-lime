@@ -12,7 +12,11 @@ COPY apps/web/package.json apps/web/package.json
 COPY apps/worker-claude/package.json apps/worker-claude/package.json
 COPY apps/worker-codex/package.json apps/worker-codex/package.json
 COPY apps/trigger/package.json apps/trigger/package.json
+COPY apps/worker-agent/package.json apps/worker-agent/package.json
 COPY packages/shared/package.json packages/shared/package.json
+COPY packages/pi-ai/package.json packages/pi-ai/package.json
+COPY packages/pi-agent/package.json packages/pi-agent/package.json
+COPY packages/pi-coding-agent-tools/package.json packages/pi-coding-agent-tools/package.json
 
 RUN bun install --frozen-lockfile
 
