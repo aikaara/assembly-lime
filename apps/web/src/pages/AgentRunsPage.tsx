@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Play } from "lucide-react";
+import { Play, ChevronLeft, ChevronRight } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { api } from "../lib/api";
 import type { AgentRunDetailResponse } from "../types";
@@ -8,23 +8,38 @@ import { StatusDot } from "../components/ui/StatusDot";
 import { Badge } from "../components/ui/Badge";
 import { EmptyState } from "../components/ui/EmptyState";
 
+const PAGE_SIZE = 25;
+
 export function AgentRunsPage() {
   const auth = useAuth();
   const [runs, setRuns] = useState<AgentRunDetailResponse[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
 
   const projectId =
     auth.status === "authenticated" ? auth.currentProjectId : null;
 
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
   useEffect(() => {
     if (!projectId) return;
     setLoading(true);
+    const offset = (page - 1) * PAGE_SIZE;
     api
-      .get<AgentRunDetailResponse[]>(`/projects/${projectId}/runs/`)
-      .then(setRuns)
-      .catch(() => setRuns([]))
+      .get<{ data: AgentRunDetailResponse[]; total: number }>(
+        `/projects/${projectId}/runs/?offset=${offset}&limit=${PAGE_SIZE}`
+      )
+      .then((res) => {
+        setRuns(res.data);
+        setTotal(res.total);
+      })
+      .catch(() => {
+        setRuns([]);
+        setTotal(0);
+      })
       .finally(() => setLoading(false));
-  }, [projectId]);
+  }, [projectId, page]);
 
   if (!loading && runs.length === 0) {
     return (
@@ -114,6 +129,32 @@ export function AgentRunsPage() {
           </tbody>
         </table>
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4 px-1">
+          <span className="text-sm text-zinc-500">
+            Page {page} of {totalPages} ({total} runs)
+          </span>
+          <div className="flex gap-2">
+            <button
+              disabled={page <= 1}
+              onClick={() => setPage((p) => p - 1)}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-md border border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Previous
+            </button>
+            <button
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => p + 1)}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-md border border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Next
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
