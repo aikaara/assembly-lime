@@ -65,11 +65,10 @@ export async function fetchGitHubUser(
 
   let email = user.email;
   if (!email) {
-    const emails = (await emailsRes.json()) as Array<{
-      email: string;
-      primary: boolean;
-      verified: boolean;
-    }>;
+    const emailsBody = await emailsRes.json();
+    const emails = Array.isArray(emailsBody)
+      ? (emailsBody as Array<{ email: string; primary: boolean; verified: boolean }>)
+      : [];
     const primary = emails.find((e) => e.primary && e.verified);
     email = primary?.email ?? emails[0]?.email ?? `${user.login}@users.noreply.github.com`;
   }
