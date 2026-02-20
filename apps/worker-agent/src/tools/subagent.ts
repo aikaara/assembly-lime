@@ -6,6 +6,7 @@
 import { Agent, type AgentTool, type AgentToolResult } from "@assembly-lime/pi-agent";
 import { getEnvApiKey, getModel, type Model } from "@assembly-lime/pi-ai";
 import type { OperationsBundle } from "@assembly-lime/pi-coding-agent-tools";
+import type { DaytonaWorkspace } from "@assembly-lime/shared";
 import { Type } from "@sinclair/typebox";
 import { convertToLlm } from "../agent/convert-to-llm.js";
 
@@ -77,11 +78,12 @@ const subagentParams = Type.Object({
 export interface SubagentToolOptions {
 	allTools: Map<string, AgentTool<any>>;
 	cwd: string;
+	workspace?: DaytonaWorkspace;
 	onProgress?: (agentName: string, message: string) => void;
 }
 
 export function createSubagentTool(options: SubagentToolOptions): AgentTool<typeof subagentParams> {
-	const { allTools, cwd, onProgress } = options;
+	const { allTools, cwd, workspace, onProgress } = options;
 
 	function resolveToolsForConfig(config: SubagentConfig): AgentTool<any>[] {
 		return config.toolNames
@@ -101,7 +103,13 @@ export function createSubagentTool(options: SubagentToolOptions): AgentTool<type
 		const tools = resolveToolsForConfig(config);
 		const model = resolveModel(config);
 
-		const systemPrompt = `${config.systemPromptSuffix}\n\nWorking directory: ${cwd}`;
+		const workspaceCtx = workspace
+			? `\n\nYou are operating inside a shared Daytona sandbox (${workspace.sandbox.id}). ` +
+				`The repository is cloned at: ${workspace.repoDir}. ` +
+				`All file and shell operations execute inside this sandbox.`
+			: "";
+
+		const systemPrompt = `${config.systemPromptSuffix}\n\nWorking directory: ${cwd}${workspaceCtx}`;
 
 		const agent = new Agent({
 			initialState: {

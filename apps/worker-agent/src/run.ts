@@ -157,6 +157,7 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
     const { tools, toolRegistry } = buildToolSet(cwd, payload.mode, ops, gitOps, {
       prContext,
       emitter,
+      workspace,
     });
     log.info({ toolCount: tools.length, mode: payload.mode }, "tools built");
 

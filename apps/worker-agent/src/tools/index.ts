@@ -31,10 +31,12 @@ import { createSubagentTool } from "./subagent.js";
 import { createTasksTool } from "./create-tasks.js";
 import { createUpdateTaskStatusTool } from "./update-task-status.js";
 import type { AgentEventEmitter } from "../agent/emitter.js";
+import type { DaytonaWorkspace } from "@assembly-lime/shared";
 
 export interface BuildToolSetOptions {
 	prContext?: PRContext;
 	emitter?: AgentEventEmitter;
+	workspace?: DaytonaWorkspace;
 }
 
 export interface BuildToolSetResult {
@@ -115,6 +117,7 @@ export function buildToolSet(
 			const subagent = createSubagentTool({
 				allTools: registry,
 				cwd,
+				workspace: options.workspace,
 				onProgress: options.emitter
 					? (agentName, message) => {
 							options.emitter!.emitLog(message).catch(() => {});
