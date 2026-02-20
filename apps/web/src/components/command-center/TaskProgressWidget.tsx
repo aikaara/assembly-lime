@@ -1,5 +1,10 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, CheckCircle2, Circle, Loader2 } from "lucide-react";
+import {
+  ChevronRight,
+  CheckCircle2,
+  Circle,
+  Loader2,
+} from "lucide-react";
 
 type Task = {
   ticketId: string;
@@ -13,48 +18,54 @@ export function TaskProgressWidget({ tasks }: { tasks: Task[] }) {
 
   const completed = tasks.filter((t) => t.status === "completed").length;
   const total = tasks.length;
-  const progressPct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+  // Find the current in-progress task name
+  const currentTask = tasks.find((t) => t.status === "in_progress");
 
   return (
-    <div className="border-t border-zinc-800 px-4 py-2">
+    <div className="mb-2 rounded-xl border border-zinc-700/60 bg-zinc-900/80 backdrop-blur-sm shadow-lg overflow-hidden">
+      {/* Header */}
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className="flex items-center gap-2 w-full text-left"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-zinc-800/40 transition-colors"
       >
-        {collapsed ? (
-          <ChevronRight className="h-3.5 w-3.5 text-zinc-500" />
-        ) : (
-          <ChevronDown className="h-3.5 w-3.5 text-zinc-500" />
-        )}
-        <span className="text-xs font-medium text-zinc-400">
-          Tasks: {completed}/{total} complete
+        <ChevronRight
+          className={`h-3.5 w-3.5 text-zinc-500 shrink-0 transition-transform duration-200 ${!collapsed ? "rotate-90" : ""}`}
+        />
+        <span className="flex-1 text-xs text-zinc-300 truncate">
+          {currentTask
+            ? currentTask.title
+            : completed === total
+              ? "All tasks complete"
+              : "Tasks"}
         </span>
-        <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden ml-2">
-          <div
-            className="h-full bg-emerald-500 rounded-full transition-all duration-300"
-            style={{ width: `${progressPct}%` }}
-          />
-        </div>
+        <span className="text-xs font-mono text-zinc-500 shrink-0">
+          {completed}/{total}
+        </span>
       </button>
 
+      {/* Task list */}
       {!collapsed && (
-        <ul className="mt-2 space-y-1">
-          {tasks.map((task) => (
-            <li key={task.ticketId} className="flex items-start gap-2 py-0.5">
+        <ul className="border-t border-zinc-800/60 px-3 py-1.5 space-y-0.5">
+          {tasks.map((task, i) => (
+            <li key={task.ticketId} className="flex items-center gap-2 py-0.5">
+              <span className="text-[10px] text-zinc-600 w-4 text-right shrink-0">
+                {i + 1}
+              </span>
               {task.status === "completed" ? (
-                <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
               ) : task.status === "in_progress" ? (
-                <Loader2 className="h-4 w-4 text-blue-400 shrink-0 mt-0.5 animate-spin" />
+                <Loader2 className="h-3.5 w-3.5 text-blue-400 shrink-0 animate-spin" />
               ) : (
-                <Circle className="h-4 w-4 text-zinc-600 shrink-0 mt-0.5" />
+                <Circle className="h-3.5 w-3.5 text-zinc-700 shrink-0" />
               )}
               <span
-                className={`text-xs ${
+                className={`text-xs truncate ${
                   task.status === "completed"
-                    ? "text-zinc-500 line-through"
+                    ? "text-zinc-600"
                     : task.status === "in_progress"
-                      ? "text-zinc-200"
-                      : "text-zinc-400"
+                      ? "text-zinc-200 font-medium"
+                      : "text-zinc-500"
                 }`}
               >
                 {task.title}

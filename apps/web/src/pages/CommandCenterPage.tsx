@@ -17,7 +17,6 @@ import { useAuth } from "../hooks/useAuth";
 import { PromptPanel } from "../components/command-center/PromptPanel";
 import { TranscriptPanel } from "../components/command-center/TranscriptPanel";
 import { StatusDot } from "../components/ui/StatusDot";
-import { Badge } from "../components/ui/Badge";
 
 function parseEventPayload(raw: AgentEventResponse): AgentEvent | null {
   try {
@@ -191,8 +190,8 @@ export function CommandCenterPage() {
     <div className="flex h-full flex-col">
       {/* Run header (when viewing an existing run) */}
       {hasActiveRun && run && (
-        <div className="border-b border-zinc-800 px-6 py-3 shrink-0">
-          <div className="flex items-center gap-3 flex-wrap">
+        <div className="border-b border-zinc-800 px-6 py-2 shrink-0">
+          <div className="flex items-center gap-3">
             <Link
               to="/command-center"
               onClick={() => {
@@ -200,24 +199,19 @@ export function CommandCenterPage() {
                 setRun(null);
                 setHistoricalEvents([]);
               }}
-              className="inline-flex items-center gap-1 text-sm text-zinc-400 hover:text-zinc-200"
+              className="inline-flex items-center justify-center rounded-lg p-1.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
             >
               <ArrowLeft className="h-4 w-4" />
-              New Run
             </Link>
-            <span className="text-zinc-700">|</span>
             <span className="text-sm font-mono text-zinc-300">
               Run #{run.id}
             </span>
             <StatusDot status={run.status} showLabel />
-            <Badge variant={run.provider === "claude" ? "purple" : "info"}>
-              {run.provider}
-            </Badge>
-            <Badge variant="neutral">{run.mode}</Badge>
+            <div className="flex-1" />
+            <span className="text-xs text-zinc-600">
+              {run.provider} / {run.mode}
+            </span>
           </div>
-          <p className="mt-1 text-xs text-zinc-500 truncate max-w-2xl">
-            {run.inputPrompt}
-          </p>
         </div>
       )}
 
@@ -243,6 +237,7 @@ export function CommandCenterPage() {
         connectionState={isLive ? connectionState : "disconnected"}
         runId={activeRunId}
         runStatus={displayStatus}
+        inputPrompt={run?.inputPrompt}
         onSendMessage={handleSendMessage}
         onApprove={handleApprove}
         onReject={handleReject}

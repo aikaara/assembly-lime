@@ -29,7 +29,7 @@ export function ApprovalBar({
   }
 
   return (
-    <div className="border-t border-amber-900/50 bg-amber-950/20 px-4 py-3">
+    <div className="mb-2 rounded-xl border border-amber-900/40 bg-amber-950/15 px-4 py-3">
       <div className="flex items-center gap-3">
         <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
         <span className="text-sm text-amber-300 flex-1">

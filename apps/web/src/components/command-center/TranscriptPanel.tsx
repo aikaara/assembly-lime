@@ -1,20 +1,25 @@
 import { useEffect, useRef, useState } from "react";
 import type { AgentEvent, AgentRunStatus } from "../../types";
 import type { ConnectionState } from "./types";
-import { EventCard } from "./EventCard";
+import { useEventGroups } from "../../hooks/useEventGroups";
+import { EventGroupCard } from "./EventGroupCard";
 import { TaskProgressWidget } from "./TaskProgressWidget";
 import { ApprovalBar } from "./ApprovalBar";
-import { Badge } from "../ui/Badge";
-import { ScrollText, Send } from "lucide-react";
+import { ArrowUp, ScrollText } from "lucide-react";
 import { EmptyState } from "../ui/EmptyState";
 
-const TERMINAL_STATUSES: AgentRunStatus[] = ["completed", "failed", "cancelled"];
+const TERMINAL_STATUSES: AgentRunStatus[] = [
+  "completed",
+  "failed",
+  "cancelled",
+];
 
 export function TranscriptPanel({
   events,
   connectionState,
   runId,
   runStatus,
+  inputPrompt,
   onSendMessage,
   onApprove,
   onReject,
@@ -23,6 +28,7 @@ export function TranscriptPanel({
   connectionState: ConnectionState;
   runId: string | null;
   runStatus: AgentRunStatus | null;
+  inputPrompt?: string | null;
   onSendMessage?: (text: string) => void;
   onApprove?: () => void;
   onReject?: () => void;
@@ -35,6 +41,8 @@ export function TranscriptPanel({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [events.length]);
 
+  const groups = useEventGroups(events, inputPrompt);
+
   // Derive latest tasks from events
   const latestTasks = (() => {
     for (let i = events.length - 1; i >= 0; i--) {
@@ -45,9 +53,10 @@ export function TranscriptPanel({
     return null;
   })();
 
-  const isTerminal = runStatus ? TERMINAL_STATUSES.includes(runStatus) : false;
+  const isTerminal = runStatus
+    ? TERMINAL_STATUSES.includes(runStatus)
+    : false;
 
-  // Always show chat input when there's a run loaded
   const showChatInput = !!runId && !!onSendMessage;
 
   async function handleSend() {
@@ -71,99 +80,86 @@ export function TranscriptPanel({
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
-      {/* Connection status */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-zinc-800">
-        <span
-          className={`h-2 w-2 rounded-full ${
-            connectionState === "connected"
-              ? "bg-emerald-500"
-              : connectionState === "connecting"
-                ? "bg-amber-500 animate-pulse"
-                : "bg-zinc-600"
-          }`}
-        />
-        <span className="text-xs text-zinc-500">
-          {connectionState === "connected"
-            ? "Connected"
-            : connectionState === "connecting"
-              ? "Connecting..."
-              : "Disconnected"}
-        </span>
-        {events.length > 0 && (
-          <Badge variant="neutral">{events.length} events</Badge>
-        )}
-        {runStatus && (
-          <Badge
-            variant={
-              runStatus === "awaiting_followup"
-                ? "success"
-                : runStatus === "awaiting_approval"
-                  ? "warning"
-                  : runStatus === "running"
-                    ? "info"
-                    : "neutral"
-            }
-          >
-            {runStatus.replace(/_/g, " ")}
-          </Badge>
-        )}
-      </div>
-
-      {/* Events list */}
-      <div className="flex-1 overflow-y-auto px-4 py-2 space-y-1">
-        {events.length === 0 ? (
-          <EmptyState
-            icon={ScrollText}
-            title="No events yet"
-            description="Submit a prompt to start an agent run. Events will stream here in real time."
-          />
-        ) : (
-          events.map((event, i) => <EventCard key={i} event={event} />)
-        )}
-        <div ref={bottomRef} />
-      </div>
-
-      {/* Task progress widget */}
-      {latestTasks && latestTasks.length > 0 && (
-        <TaskProgressWidget tasks={latestTasks} />
-      )}
-
-      {/* Approval bar */}
-      {runStatus === "awaiting_approval" && onApprove && onReject && (
-        <ApprovalBar onApprove={onApprove} onReject={onReject} />
-      )}
-
-      {/* Chat input — always visible when a run is loaded */}
-      {showChatInput && (
-        <div className="border-t border-zinc-800 px-4 py-3">
-          <div className="flex items-end gap-2">
-            <textarea
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={
-                runStatus === "awaiting_followup"
-                  ? "Send a follow-up message..."
-                  : isTerminal
-                    ? "Send a message to continue this run..."
-                    : "Send a message to the agent..."
-              }
-              rows={1}
-              className="flex-1 resize-none rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-500 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+      {/* Events list — centered column */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-3xl mx-auto px-4 py-4">
+          {groups.length === 0 ? (
+            <EmptyState
+              icon={ScrollText}
+              title="No events yet"
+              description="Submit a prompt to start an agent run. Events will stream here in real time."
             />
-            <button
-              onClick={handleSend}
-              disabled={!inputText.trim() || sending}
-              className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              <Send className="h-4 w-4" />
-            </button>
-          </div>
-          {runStatus === "awaiting_followup" && (
-            <p className="text-xs text-emerald-500/70 mt-1">
-              Agent is waiting for your input. Press Enter to send.
-            </p>
+          ) : (
+            groups.map((group, i) => (
+              <EventGroupCard key={i} group={group} />
+            ))
           )}
+          <div ref={bottomRef} />
+        </div>
+      </div>
+
+      {/* Bottom area: task widget + approval + input */}
+      {showChatInput && (
+        <div className="shrink-0">
+          <div className="max-w-3xl mx-auto px-4">
+            {/* Floating task progress widget */}
+            {latestTasks && latestTasks.length > 0 && (
+              <TaskProgressWidget tasks={latestTasks} />
+            )}
+
+            {/* Approval bar */}
+            {runStatus === "awaiting_approval" && onApprove && onReject && (
+              <ApprovalBar onApprove={onApprove} onReject={onReject} />
+            )}
+
+            {/* Chat input */}
+            <div className="py-3">
+              <div className="relative flex items-end rounded-xl border border-zinc-700 bg-zinc-900 focus-within:border-emerald-600 focus-within:ring-1 focus-within:ring-emerald-600 transition-all">
+                <textarea
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={
+                    runStatus === "awaiting_followup"
+                      ? "Send a follow-up message..."
+                      : isTerminal
+                        ? "Send a message to continue..."
+                        : "Send a message..."
+                  }
+                  rows={1}
+                  className="flex-1 resize-none bg-transparent px-4 py-3 text-sm text-zinc-200 placeholder:text-zinc-500 focus:outline-none"
+                />
+                <button
+                  onClick={handleSend}
+                  disabled={!inputText.trim() || sending}
+                  className="m-1.5 rounded-lg bg-emerald-600 p-2 text-white hover:bg-emerald-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ArrowUp className="h-4 w-4" />
+                </button>
+              </div>
+              {/* Connection indicator + helper text */}
+              <div className="flex items-center justify-center gap-2 mt-1.5">
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    connectionState === "connected"
+                      ? "bg-emerald-500"
+                      : connectionState === "connecting"
+                        ? "bg-amber-500 animate-pulse"
+                        : "bg-zinc-600"
+                  }`}
+                />
+                <span className="text-[10px] text-zinc-600">
+                  {runStatus === "awaiting_followup"
+                    ? "Agent is waiting for your input"
+                    : connectionState === "connected"
+                      ? "Connected"
+                      : connectionState === "connecting"
+                        ? "Reconnecting..."
+                        : "Disconnected"}
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
