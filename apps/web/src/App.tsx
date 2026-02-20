@@ -27,6 +27,7 @@ function App() {
       >
         <Route index element={<Navigate to="/command-center" replace />} />
         <Route path="command-center" element={<CommandCenterPage />} />
+        <Route path="command-center/:runId" element={<CommandCenterPage />} />
         <Route path="board" element={<BoardPage />} />
         <Route path="runs" element={<AgentRunsPage />} />
         <Route path="runs/:id" element={<RunDetailPage />} />

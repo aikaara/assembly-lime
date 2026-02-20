@@ -29,6 +29,7 @@ import {
 import { createPRTool, type PRContext } from "./create-pr.js";
 import { createSubagentTool } from "./subagent.js";
 import { createTasksTool } from "./create-tasks.js";
+import { createUpdateTaskStatusTool } from "./update-task-status.js";
 import type { AgentEventEmitter } from "../agent/emitter.js";
 
 export interface BuildToolSetOptions {
@@ -85,6 +86,9 @@ export function buildToolSet(
 				const tasksTool = createTasksTool(options.emitter);
 				registry.set(tasksTool.name, tasksTool);
 				tools.push(tasksTool);
+				const updateTaskStatusTool = createUpdateTaskStatusTool(options.emitter);
+				registry.set(updateTaskStatusTool.name, updateTaskStatusTool);
+				tools.push(updateTaskStatusTool);
 			}
 			break;
 		}
@@ -101,6 +105,11 @@ export function buildToolSet(
 		case "implement": {
 			tools = [bash, read, write, edit, grep, find, ls, gitStatus, gitDiff, gitCommitPush];
 			if (options.prContext) tools.push(registry.get("create_pr")!);
+			if (options.emitter) {
+				const updateTaskStatusTool = createUpdateTaskStatusTool(options.emitter);
+				registry.set(updateTaskStatusTool.name, updateTaskStatusTool);
+				tools.push(updateTaskStatusTool);
+			}
 
 			// Subagent tool (implement mode only) — uses all registered tools EXCEPT subagent itself
 			const subagent = createSubagentTool({

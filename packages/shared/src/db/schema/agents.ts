@@ -35,6 +35,7 @@ export const agentRuns = pgTable(
     parentRunId: bigint("parent_run_id", { mode: "number" }).references(() => agentRuns.id, { onDelete: "set null" }),
     orchestrationMode: text("orchestration_mode"),
     totalTokensUsed: bigint("total_tokens_used", { mode: "number" }).default(0),
+    sessionMessagesJson: jsonb("session_messages_json"),
     compactedAt: timestamp("compacted_at", { withTimezone: true }),
     startedAt: timestamp("started_at", { withTimezone: true }),
     endedAt: timestamp("ended_at", { withTimezone: true }),

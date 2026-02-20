@@ -169,23 +169,32 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
       repos: repoPaths.length > 0 ? repoPaths : undefined,
     });
 
-    // 8. Create agent
+    // 8. Create agent (restore session if available)
+    let initialMessages: any[] | undefined;
+    const existingSession = await emitter.loadSessionSnapshot();
+    if (existingSession && existingSession.length > 0) {
+      log.info({ messageCount: existingSession.length }, "restoring agent session from DB");
+      initialMessages = existingSession as any[];
+    }
+
     const agent = createAgent({
       providerId: payload.provider,
       mode: payload.mode,
       systemPrompt,
       tools,
       emitter,
+      initialMessages,
     });
 
-    // 9. Bridge events with max-turns safety
+    // 9. Bridge events with max-turns safety (suppress terminal status — run.ts manages it)
     const bridge = bridgeEvents(emitter, log, {
       maxTurns: 50,
+      suppressTerminalStatus: true,
       onMaxTurns: () => {
         agent.steer("You have used the maximum number of turns. Wrap up: commit any pending changes, summarize what you've done, and stop.");
       },
     });
-    const unsubscribe = agent.subscribe(bridge.handler);
+    let unsubscribe = agent.subscribe(bridge.handler);
 
     // 10. Emit run repo tracking (before agent starts)
     const branchNameTracking = `al/${payload.mode}/${payload.runId}`;
@@ -201,19 +210,113 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
     await agent.waitForIdle();
 
     unsubscribe();
-    log.info({ totalTurns: bridge.getTurnNumber() }, "agent run completed");
+    log.info({ totalTurns: bridge.getTurnNumber() }, "agent initial prompt completed");
 
-    // 12. Plan mode: emit awaiting_approval for human-in-the-loop
+    // Snapshot session after initial prompt
+    await emitter.emitSessionSnapshot(agent.state.messages);
+    log.info({ messageCount: agent.state.messages.length }, "session snapshot saved after initial prompt");
+
+    // ── Follow-up polling loop ──────────────────────────────────────
+    // After initial prompt completes, enter a polling loop waiting for user messages.
+    // The agent stays alive and can process follow-ups via agent.followUp().
+
+    const FOLLOWUP_POLL_INTERVAL_MS = 3_000;
+    const FOLLOWUP_IDLE_TIMEOUT_MS = 15 * 60 * 1_000; // 15 min idle timeout
+    const TRIGGER_BUDGET_RESERVE_MS = 120_000; // reserve 2 min for post-run
+    const runStartTime = Date.now();
+    const timeBudgetMs = (payload.constraints?.timeBudgetSec ?? 3600) * 1000;
+    let lastEventId = 0;
+
+    await emitter.emitStatus("awaiting_followup", "Ready for follow-up messages.");
+    let lastActivityTime = Date.now();
+
+    let exitReason = "idle_timeout";
+
+    while (true) {
+      // Check idle timeout
+      if (Date.now() - lastActivityTime > FOLLOWUP_IDLE_TIMEOUT_MS) {
+        exitReason = "idle_timeout";
+        log.info({ idleMs: Date.now() - lastActivityTime }, "follow-up idle timeout reached");
+        break;
+      }
+
+      // Check Trigger.dev budget
+      const elapsed = Date.now() - runStartTime;
+      if (elapsed + TRIGGER_BUDGET_RESERVE_MS > timeBudgetMs) {
+        exitReason = "budget_exhausted";
+        log.info({ elapsedMs: elapsed, budgetMs: timeBudgetMs }, "Trigger.dev budget nearly exhausted");
+        break;
+      }
+
+      // Poll for user messages
+      const messages = await emitter.pollUserMessages(lastEventId);
+
+      if (messages.length > 0) {
+        lastActivityTime = Date.now();
+        const latestId = Math.max(...messages.map((m) => m.id));
+        lastEventId = latestId;
+
+        const combinedText = messages.map((m) => m.text).join("\n\n");
+        log.info({ messageCount: messages.length, lastEventId }, "received follow-up message(s)");
+
+        // Resume agent with follow-up
+        await emitter.emitStatus("running", "Processing follow-up...");
+
+        // Refresh token if needed before follow-up
+        if (isGitHubAppConfigured() && tokenExpiresAt) {
+          const minutesLeft = (tokenExpiresAt.getTime() - Date.now()) / 60_000;
+          if (minutesLeft < 10) {
+            try {
+              const refreshed = await generateInstallationToken(payload.repo.owner);
+              authToken = refreshed.token;
+              tokenExpiresAt = refreshed.expiresAt;
+              workspace.setAuthCredentials("x-access-token", refreshed.token);
+              if (prContext) prContext.authToken = refreshed.token;
+            } catch (err) {
+              log.warn({ err }, "failed to refresh token during follow-up");
+            }
+          }
+        }
+
+        const followUpBridge = bridgeEvents(emitter, log, {
+          maxTurns: 50,
+          suppressTerminalStatus: true,
+        });
+        unsubscribe = agent.subscribe(followUpBridge.handler);
+
+        try {
+          await agent.followUp(combinedText);
+          await agent.waitForIdle();
+
+          // Snapshot session after follow-up
+          await emitter.emitSessionSnapshot(agent.state.messages);
+          log.info({ messageCount: agent.state.messages.length }, "session snapshot saved after follow-up");
+        } catch (err) {
+          log.error({ err }, "error during follow-up");
+          await emitter.emitError(
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+
+        unsubscribe();
+        await emitter.emitStatus("awaiting_followup", "Ready for follow-up messages.");
+      }
+
+      // Sleep before next poll
+      await new Promise((resolve) => setTimeout(resolve, FOLLOWUP_POLL_INTERVAL_MS));
+    }
+
+    log.info({ exitReason, totalTurns: bridge.getTurnNumber() }, "exiting follow-up loop");
+
+    // ── Post-run: commit + push + diff (implement/bugfix only) ──
     if (payload.mode === "plan") {
+      // 12. Plan mode: emit awaiting_approval for human-in-the-loop
       await emitter.emitStatus(
         "awaiting_approval",
         "Plan complete — review the created tasks and approve to begin implementation."
       );
-    }
-
-    // 13. Post-run: auto-commit + push + diff (implement/bugfix only)
-    if (payload.mode === "implement" || payload.mode === "bugfix") {
-      // Refresh token if using GitHub App and token is near expiry (< 10 min left)
+    } else if (payload.mode === "implement" || payload.mode === "bugfix") {
+      // 13. Refresh token if using GitHub App and token is near expiry (< 10 min left)
       if (isGitHubAppConfigured() && tokenExpiresAt) {
         const minutesLeft = (tokenExpiresAt.getTime() - Date.now()) / 60_000;
         if (minutesLeft < 10) {
@@ -230,10 +333,8 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
         }
       }
       await postRunDaytona(workspace, emitter, log, prContext, payload.runId, payload.mode, payload.repo);
-    }
 
-    // 14. Preview (implement/bugfix modes)
-    if (payload.mode === "implement" || payload.mode === "bugfix") {
+      // 14. Preview (implement/bugfix modes)
       let previewUrl: string | undefined;
       try {
         const sessionId = `preview-${payload.runId}`;
@@ -252,6 +353,9 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
         ? `Changes committed and pushed. Preview: ${previewUrl}. Approve to create PR.`
         : "Changes committed and pushed. Approve to create PR.";
       await emitter.emitStatus("awaiting_approval", approvalMsg);
+    } else {
+      // review mode: just complete
+      await emitter.emitStatus("completed", "Agent run completed.");
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

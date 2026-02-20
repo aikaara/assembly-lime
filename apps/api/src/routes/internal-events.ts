@@ -1,5 +1,5 @@
 import { Elysia, t } from "elysia";
-import { eq } from "drizzle-orm";
+import { eq, and, gt } from "drizzle-orm";
 import { timingSafeEqual } from "crypto";
 import type { Db } from "@assembly-lime/shared/db";
 import { agentEvents, agentRuns, llmCallDumps, agentRunRepos, codeDiffs, tickets } from "@assembly-lime/shared/db/schema";
@@ -72,8 +72,8 @@ export function internalEventRoutes(db: Db) {
             if (event.message) {
               updates.outputSummary = event.message;
             }
-          } else if (event.status === "awaiting_approval") {
-            // Don't set endedAt — run is still alive with preview
+          } else if (event.status === "awaiting_approval" || event.status === "awaiting_followup") {
+            // Don't set endedAt — run is still alive
             if (event.message) {
               updates.outputSummary = event.message;
             }
@@ -328,6 +328,124 @@ export function internalEventRoutes(db: Db) {
       },
       {
         params: t.Object({ runId: t.String() }),
+      }
+    )
+    // ── Session persistence: store/retrieve full conversation snapshot ──
+    .post(
+      "/agent-session/:runId",
+      async ({ request, params, body, set }) => {
+        const key = request.headers.get("x-internal-key");
+        if (!key || !verifyInternalKey(key)) {
+          set.status = 401;
+          return { error: "unauthorized" };
+        }
+
+        const runId = Number(params.runId);
+        if (Number.isNaN(runId)) {
+          set.status = 400;
+          return { error: "invalid runId" };
+        }
+
+        const data = body as { messages: unknown[] };
+        if (!data.messages || !Array.isArray(data.messages)) {
+          set.status = 400;
+          return { error: "messages array is required" };
+        }
+
+        const [run] = await db
+          .select({ id: agentRuns.id })
+          .from(agentRuns)
+          .where(eq(agentRuns.id, runId));
+        if (!run) {
+          set.status = 404;
+          return { error: "run not found" };
+        }
+
+        await db
+          .update(agentRuns)
+          .set({ sessionMessagesJson: data.messages })
+          .where(eq(agentRuns.id, runId));
+
+        log.info({ runId, messageCount: data.messages.length }, "session snapshot stored");
+        return { ok: true };
+      },
+      {
+        params: t.Object({ runId: t.String() }),
+      }
+    )
+    .get(
+      "/agent-session/:runId",
+      async ({ request, params, set }) => {
+        const key = request.headers.get("x-internal-key");
+        if (!key || !verifyInternalKey(key)) {
+          set.status = 401;
+          return { error: "unauthorized" };
+        }
+
+        const runId = Number(params.runId);
+        if (Number.isNaN(runId)) {
+          set.status = 400;
+          return { error: "invalid runId" };
+        }
+
+        const [run] = await db
+          .select({ sessionMessagesJson: agentRuns.sessionMessagesJson })
+          .from(agentRuns)
+          .where(eq(agentRuns.id, runId));
+        if (!run) {
+          set.status = 404;
+          return { error: "run not found" };
+        }
+
+        return { messages: run.sessionMessagesJson ?? null };
+      },
+      {
+        params: t.Object({ runId: t.String() }),
+      }
+    )
+    .get(
+      "/user-messages/:runId",
+      async ({ request, params, query, set }) => {
+        const key = request.headers.get("x-internal-key");
+        if (!key || !verifyInternalKey(key)) {
+          set.status = 401;
+          return { error: "unauthorized" };
+        }
+
+        const runId = Number(params.runId);
+        if (Number.isNaN(runId)) {
+          set.status = 400;
+          return { error: "invalid runId" };
+        }
+
+        const afterId = Number(query.after ?? "0");
+
+        const rows = await db
+          .select({
+            id: agentEvents.id,
+            payloadJson: agentEvents.payloadJson,
+            ts: agentEvents.ts,
+          })
+          .from(agentEvents)
+          .where(
+            and(
+              eq(agentEvents.agentRunId, runId),
+              eq(agentEvents.type, "user_message"),
+              gt(agentEvents.id, afterId),
+            )
+          );
+
+        const messages = rows.map((r) => ({
+          id: String(r.id),
+          text: (r.payloadJson as any)?.text ?? "",
+          ts: r.ts.toISOString(),
+        }));
+
+        return { messages };
+      },
+      {
+        params: t.Object({ runId: t.String() }),
+        query: t.Object({ after: t.Optional(t.String()) }),
       }
     );
 }

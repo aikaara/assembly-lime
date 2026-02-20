@@ -12,6 +12,8 @@ const log = childLogger({ module: "agent-run-routes" });
 export function agentRunRoutes(db: Db) {
   return new Elysia({ prefix: "/agent-runs" })
     .use(requireAuth)
+
+    // ── Create run ──
     .post(
       "/",
       async ({ auth, body }) => {
@@ -96,52 +98,98 @@ export function agentRunRoutes(db: Db) {
         }),
       }
     )
-    .get(
-      "/:id",
-      async ({ params }) => {
-        const runId = Number(params.id);
-        if (isNaN(runId)) return { error: "not found" };
-        const run = await getAgentRun(db, runId);
-        if (!run) return { error: "not found" };
-        return {
-          id: String(run.id),
-          tenantId: String(run.tenantId),
-          projectId: String(run.projectId),
-          ticketId: run.ticketId ? String(run.ticketId) : null,
-          provider: run.provider,
-          mode: run.mode,
-          status: run.status,
-          inputPrompt: run.inputPrompt,
-          outputSummary: run.outputSummary,
-          costCents: String(run.costCents),
-          parentRunId: run.parentRunId ? String(run.parentRunId) : null,
-          createdAt: run.createdAt.toISOString(),
-          startedAt: run.startedAt?.toISOString() ?? null,
-          endedAt: run.endedAt?.toISOString() ?? null,
-        };
-      },
-      { params: t.Object({ id: t.String() }) }
-    )
-    .get(
-      "/:id/events",
-      async ({ params }) => {
-        const runId = Number(params.id);
-        if (isNaN(runId)) return [];
-        const events = await db
-          .select()
-          .from(agentEvents)
-          .where(eq(agentEvents.agentRunId, runId))
-          .orderBy(asc(agentEvents.ts));
 
-        return events.map((e) => ({
-          id: String(e.id),
-          type: e.type,
-          payload: e.payloadJson,
-          ts: e.ts.toISOString(),
-        }));
+    // ── Send message to a run (follow-up / chat continuation) ──
+    .post(
+      "/:id/message",
+      async ({ auth, params, body, set }) => {
+        const runId = Number(params.id);
+        if (isNaN(runId)) {
+          set.status = 400;
+          return { error: "invalid run id" };
+        }
+
+        const run = await getAgentRun(db, runId);
+        if (!run || run.tenantId !== auth!.tenantId) {
+          set.status = 404;
+          return { error: "run not found" };
+        }
+
+        const rejectedStatuses = ["failed", "cancelled"];
+        if (rejectedStatuses.includes(run.status)) {
+          set.status = 409;
+          return { error: `run status is "${run.status}", cannot send messages` };
+        }
+
+        const event = {
+          type: "user_message" as const,
+          text: body.text,
+        };
+
+        await db.insert(agentEvents).values({
+          tenantId: auth!.tenantId,
+          agentRunId: runId,
+          type: "user_message",
+          payloadJson: event,
+        });
+
+        broadcastToWs(runId, event);
+        log.info({ runId, textLength: body.text.length }, "user message sent to agent run");
+
+        return { ok: true };
+      },
+      {
+        params: t.Object({ id: t.String() }),
+        body: t.Object({ text: t.String({ minLength: 1 }) }),
+      }
+    )
+
+    // ── Reject a run ──
+    .post(
+      "/:id/reject",
+      async ({ auth, params, set }) => {
+        const runId = Number(params.id);
+        if (isNaN(runId)) {
+          set.status = 400;
+          return { error: "invalid run id" };
+        }
+
+        const run = await getAgentRun(db, runId);
+        if (!run || run.tenantId !== auth!.tenantId) {
+          set.status = 404;
+          return { error: "run not found" };
+        }
+
+        if (run.status !== "awaiting_approval") {
+          set.status = 409;
+          return { error: `run status is "${run.status}", expected "awaiting_approval"` };
+        }
+
+        await db
+          .update(agentRuns)
+          .set({ status: "cancelled", endedAt: new Date(), outputSummary: "Rejected by user" })
+          .where(eq(agentRuns.id, runId));
+
+        const statusEvent = {
+          type: "status" as const,
+          status: "cancelled" as const,
+          message: "Run rejected by user.",
+        };
+        await db.insert(agentEvents).values({
+          tenantId: auth!.tenantId,
+          agentRunId: runId,
+          type: "status",
+          payloadJson: statusEvent,
+        });
+        broadcastToWs(runId, statusEvent);
+
+        log.info({ runId }, "agent run rejected by user");
+        return { ok: true };
       },
       { params: t.Object({ id: t.String() }) }
     )
+
+    // ── Approve a run ──
     .post(
       "/:id/approve",
       async ({ auth, params, set }) => {
@@ -169,6 +217,56 @@ export function agentRunRoutes(db: Db) {
 
         // ── Implement/bugfix mode: approve → create PR ──
         return approveCodeRun(db, auth!.tenantId, run, runId);
+      },
+      { params: t.Object({ id: t.String() }) }
+    )
+
+    // ── Get run events ──
+    .get(
+      "/:id/events",
+      async ({ params }) => {
+        const runId = Number(params.id);
+        if (isNaN(runId)) return [];
+        const events = await db
+          .select()
+          .from(agentEvents)
+          .where(eq(agentEvents.agentRunId, runId))
+          .orderBy(asc(agentEvents.ts));
+
+        return events.map((e) => ({
+          id: String(e.id),
+          type: e.type,
+          payload: e.payloadJson,
+          ts: e.ts.toISOString(),
+        }));
+      },
+      { params: t.Object({ id: t.String() }) }
+    )
+
+    // ── Get run detail ──
+    .get(
+      "/:id",
+      async ({ params }) => {
+        const runId = Number(params.id);
+        if (isNaN(runId)) return { error: "not found" };
+        const run = await getAgentRun(db, runId);
+        if (!run) return { error: "not found" };
+        return {
+          id: String(run.id),
+          tenantId: String(run.tenantId),
+          projectId: String(run.projectId),
+          ticketId: run.ticketId ? String(run.ticketId) : null,
+          provider: run.provider,
+          mode: run.mode,
+          status: run.status,
+          inputPrompt: run.inputPrompt,
+          outputSummary: run.outputSummary,
+          costCents: String(run.costCents),
+          parentRunId: run.parentRunId ? String(run.parentRunId) : null,
+          createdAt: run.createdAt.toISOString(),
+          startedAt: run.startedAt?.toISOString() ?? null,
+          endedAt: run.endedAt?.toISOString() ?? null,
+        };
       },
       { params: t.Object({ id: t.String() }) }
     );

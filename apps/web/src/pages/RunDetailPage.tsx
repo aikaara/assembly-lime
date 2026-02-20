@@ -6,9 +6,10 @@ import type {
   AgentRunDetailResponse,
   AgentEventResponse,
   AgentEvent,
+  AgentRunStatus,
 } from "../types";
 import { useAgentRunStream } from "../hooks/useAgentRunStream";
-import { EventCard } from "../components/command-center/EventCard";
+import { TranscriptPanel } from "../components/command-center/TranscriptPanel";
 import { StatusDot } from "../components/ui/StatusDot";
 import { Badge } from "../components/ui/Badge";
 import { EmptyState } from "../components/ui/EmptyState";
@@ -22,17 +23,34 @@ function parseEventPayload(raw: AgentEventResponse): AgentEvent | null {
   }
 }
 
+/** Statuses where the WebSocket should stay connected */
+const LIVE_STATUSES: AgentRunStatus[] = [
+  "queued",
+  "running",
+  "awaiting_followup",
+  "awaiting_approval",
+];
+
 export function RunDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [run, setRun] = useState<AgentRunDetailResponse | null>(null);
   const [historicalEvents, setHistoricalEvents] = useState<AgentEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Connect WebSocket if run is active
-  const isActive = run?.status === "queued" || run?.status === "running";
-  const { events: liveEvents, connectionState } = useAgentRunStream(
-    isActive && id ? id : null,
-  );
+  // Connect WebSocket if run is still alive
+  const isLive = run ? LIVE_STATUSES.includes(run.status) : false;
+  const { events: liveEvents, connectionState, runStatus: liveRunStatus } =
+    useAgentRunStream(isLive && id ? id : null);
+
+  // Derive effective run status: live WS status takes priority over fetched status
+  const effectiveStatus = liveRunStatus ?? run?.status ?? null;
+
+  // Update the run object when live status changes (so header stays in sync)
+  useEffect(() => {
+    if (liveRunStatus && run && liveRunStatus !== run.status) {
+      setRun((prev) => (prev ? { ...prev, status: liveRunStatus } : prev));
+    }
+  }, [liveRunStatus]);
 
   useEffect(() => {
     if (!id) return;
@@ -54,6 +72,33 @@ export function RunDetailPage() {
       })
       .finally(() => setLoading(false));
   }, [id]);
+
+  async function handleSendMessage(text: string) {
+    if (!id) return;
+    try {
+      await api.post(`/agent-runs/${id}/message`, { text });
+    } catch (err) {
+      console.error("Failed to send message:", err);
+    }
+  }
+
+  async function handleApprove() {
+    if (!id) return;
+    try {
+      await api.post(`/agent-runs/${id}/approve`);
+    } catch (err) {
+      console.error("Failed to approve run:", err);
+    }
+  }
+
+  async function handleReject() {
+    if (!id) return;
+    try {
+      await api.post(`/agent-runs/${id}/reject`);
+    } catch (err) {
+      console.error("Failed to reject run:", err);
+    }
+  }
 
   if (loading) {
     return (
@@ -85,10 +130,21 @@ export function RunDetailPage() {
 
   const allEvents = [...historicalEvents, ...liveEvents];
 
+  // Derive run status from historical events if not live
+  const historicalStatus = (() => {
+    for (let i = historicalEvents.length - 1; i >= 0; i--) {
+      const e = historicalEvents[i];
+      if (e.type === "status") return e.status;
+    }
+    return null;
+  })();
+
+  const displayStatus = effectiveStatus ?? historicalStatus;
+
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="border-b border-zinc-800 px-6 py-4">
+      <div className="border-b border-zinc-800 px-6 py-4 shrink-0">
         <Link
           to="/runs"
           className="inline-flex items-center gap-1 text-sm text-zinc-400 hover:text-zinc-200 mb-3"
@@ -106,7 +162,7 @@ export function RunDetailPage() {
             {run.provider}
           </Badge>
           <Badge variant="neutral">{run.mode}</Badge>
-          {isActive && (
+          {isLive && (
             <span
               className={`h-2 w-2 rounded-full ${
                 connectionState === "connected"
@@ -130,18 +186,16 @@ export function RunDetailPage() {
         </div>
       </div>
 
-      {/* Events */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-1">
-        {allEvents.length === 0 ? (
-          <EmptyState
-            icon={Clock}
-            title="No events yet"
-            description="Events will appear here as the agent processes this run."
-          />
-        ) : (
-          allEvents.map((event, i) => <EventCard key={i} event={event} />)
-        )}
-      </div>
+      {/* Transcript with interactive features */}
+      <TranscriptPanel
+        events={allEvents}
+        connectionState={isLive ? connectionState : "disconnected"}
+        runId={id ?? null}
+        runStatus={displayStatus}
+        onSendMessage={handleSendMessage}
+        onApprove={handleApprove}
+        onReject={handleReject}
+      />
     </div>
   );
 }

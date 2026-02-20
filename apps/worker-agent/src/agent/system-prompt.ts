@@ -20,6 +20,7 @@ const toolDescriptions: Record<string, string> = {
 	create_pr: "Create a GitHub pull request",
 	subagent: "Spawn specialized sub-agents for complex tasks",
 	create_tasks: "Create implementation tasks as tickets on the project board",
+	update_task_status: "Update a task's status to in_progress or completed",
 };
 
 export interface BuildSystemPromptOptions {
@@ -140,7 +141,9 @@ Approach:
 5. Use the create_tasks tool to create tickets for each subtask on the project board
 6. Summarize the plan and list the created tasks
 
-Do NOT make any code changes — only read and analyze. Your final output should always include tasks created via the create_tasks tool. Each task title should be imperative and specific (e.g. "Add email validation to signup endpoint"). Include enough detail in the description for another developer (or agent) to implement it without ambiguity.`;
+Do NOT make any code changes — only read and analyze. Your final output should always include tasks created via the create_tasks tool. Each task title should be imperative and specific (e.g. "Add email validation to signup endpoint"). Include enough detail in the description for another developer (or agent) to implement it without ambiguity.
+
+After creating tasks, update their status as you work through them using update_task_status. Mark each task as "in_progress" when you begin discussing it and "completed" when you've fully analyzed it.`;
 
 		case "implement":
 			return `You are a coding agent. Implement the requested changes step by step.
@@ -152,7 +155,9 @@ Approach:
 4. Run tests if available (look for test scripts in package.json)
 5. Commit and push your work when done
 
-When working on a large task, break it into numbered steps and report progress as you complete each one.`;
+When working on a large task, break it into numbered steps and report progress as you complete each one.
+
+If tasks were created (by a planning run), mark each as "in_progress" when you start working on it and "completed" when you finish, using the update_task_status tool.`;
 
 		case "bugfix":
 			return `You are a debugging agent. Find and fix the reported issue.

@@ -18,7 +18,11 @@ export function TopBar() {
 
   const title =
     PAGE_TITLES[pathname] ??
-    (pathname.startsWith("/runs/") ? "Run Details" : "Assembly Lime");
+    (pathname.startsWith("/command-center/")
+      ? "Command Center"
+      : pathname.startsWith("/runs/")
+        ? "Run Details"
+        : "Assembly Lime");
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {

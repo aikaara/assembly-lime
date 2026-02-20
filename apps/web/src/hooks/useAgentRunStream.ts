@@ -1,11 +1,12 @@
 import { useEffect, useReducer, useRef, useState } from "react";
-import type { AgentEvent } from "../types";
+import type { AgentEvent, AgentRunStatus } from "../types";
 
 type ConnectionState = "disconnected" | "connecting" | "connected";
 
 type State = {
   events: AgentEvent[];
   connectionState: ConnectionState;
+  runStatus: AgentRunStatus | null;
 };
 
 type Action =
@@ -15,19 +16,28 @@ type Action =
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
-    case "EVENT":
-      return { ...state, events: [...state.events, action.event] };
+    case "EVENT": {
+      const newState = { ...state, events: [...state.events, action.event] };
+      // Track run status from status events
+      if (action.event.type === "status") {
+        newState.runStatus = action.event.status;
+      }
+      return newState;
+    }
     case "CONNECTION_STATE":
       return { ...state, connectionState: action.state };
     case "RESET":
-      return { events: [], connectionState: "disconnected" };
+      return { events: [], connectionState: "disconnected", runStatus: null };
   }
 }
+
+const TERMINAL_STATUSES: AgentRunStatus[] = ["completed", "failed", "cancelled"];
 
 export function useAgentRunStream(runId: string | null) {
   const [state, dispatch] = useReducer(reducer, {
     events: [],
     connectionState: "disconnected",
+    runStatus: null,
   });
   const wsRef = useRef<WebSocket | null>(null);
   const retryCountRef = useRef(0);
@@ -68,12 +78,10 @@ export function useAgentRunStream(runId: string | null) {
           const event = JSON.parse(e.data) as AgentEvent;
           dispatch({ type: "EVENT", event });
 
-          // Stop reconnecting if run is terminal
+          // Stop reconnecting only on truly terminal statuses
           if (
             event.type === "status" &&
-            (event.status === "completed" ||
-              event.status === "failed" ||
-              event.status === "cancelled")
+            TERMINAL_STATUSES.includes(event.status)
           ) {
             setShouldConnect(false);
           }
@@ -111,5 +119,6 @@ export function useAgentRunStream(runId: string | null) {
   return {
     events: state.events,
     connectionState: state.connectionState,
+    runStatus: state.runStatus,
   };
 }

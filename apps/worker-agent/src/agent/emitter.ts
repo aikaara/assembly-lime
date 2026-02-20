@@ -58,7 +58,7 @@ export class AgentEventEmitter {
   }
 
   async emitStatus(
-    status: "queued" | "running" | "completed" | "failed" | "cancelled" | "awaiting_approval" | "plan_approved",
+    status: "queued" | "running" | "completed" | "failed" | "cancelled" | "awaiting_approval" | "awaiting_followup" | "plan_approved",
     message?: string
   ): Promise<void> {
     await this.emit({ type: "status", status, message });
@@ -122,6 +122,28 @@ export class AgentEventEmitter {
     await this.postInternal("code-diffs", data);
   }
 
+  // ── Session persistence ──
+
+  async emitSessionSnapshot(messages: unknown[]): Promise<void> {
+    await this.postInternal("agent-session", { messages });
+  }
+
+  async loadSessionSnapshot(): Promise<unknown[] | null> {
+    try {
+      const res = await fetch(
+        `${this.baseUrl}/internal/agent-session/${this.runId}`,
+        {
+          headers: { "x-internal-key": INTERNAL_KEY },
+        },
+      );
+      if (!res.ok) return null;
+      const data = (await res.json()) as { messages: unknown[] | null };
+      return data.messages;
+    } catch {
+      return null;
+    }
+  }
+
   async emitTasks(
     tasks: Array<{ title: string; description?: string }>
   ): Promise<Array<{ ticketId: string; title: string }>> {
@@ -140,6 +162,62 @@ export class AgentEventEmitter {
     }
 
     const data = (await res.json()) as { tickets: Array<{ ticketId: string; title: string }> };
+
+    // Initialize task list for tracking
+    this.taskList = data.tickets.map((t) => ({
+      ticketId: t.ticketId,
+      title: t.title,
+      status: "pending" as const,
+    }));
+
     return data.tickets;
+  }
+
+  // ── User message polling (for follow-up loop) ──
+
+  async pollUserMessages(afterEventId: number): Promise<Array<{ id: number; text: string; ts: string }>> {
+    try {
+      const res = await fetch(
+        `${this.baseUrl}/internal/user-messages/${this.runId}?after=${afterEventId}`,
+        {
+          headers: { "x-internal-key": INTERNAL_KEY },
+        },
+      );
+      if (!res.ok) return [];
+      const data = (await res.json()) as {
+        messages: Array<{ id: string; text: string; ts: string }>;
+      };
+      return data.messages.map((m) => ({ id: Number(m.id), text: m.text, ts: m.ts }));
+    } catch {
+      return [];
+    }
+  }
+
+  // ── Task progress tracking ──
+
+  private taskList: Array<{
+    ticketId: string;
+    title: string;
+    description?: string;
+    status: "pending" | "in_progress" | "completed";
+  }> = [];
+
+  getTaskList() {
+    return this.taskList;
+  }
+
+  async updateTaskStatus(
+    ticketId: string,
+    status: "in_progress" | "completed",
+  ): Promise<void> {
+    const task = this.taskList.find((t) => t.ticketId === ticketId);
+    if (task) {
+      task.status = status;
+    }
+    // Re-emit full task list
+    await this.emit({
+      type: "tasks",
+      tasks: this.taskList,
+    });
   }
 }

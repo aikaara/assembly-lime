@@ -17,6 +17,7 @@ export interface CreateAgentOpts {
   systemPrompt: string;
   tools: AgentTool<any>[];
   emitter?: AgentEventEmitter;
+  initialMessages?: any[];
 }
 
 export function createAgent(opts: CreateAgentOpts): Agent {
@@ -30,7 +31,7 @@ export function createAgent(opts: CreateAgentOpts): Agent {
       model,
       thinkingLevel,
       tools: opts.tools,
-      messages: [],
+      messages: opts.initialMessages ?? [],
     },
     convertToLlm,
     transformContext: createTransformContext(contextWindow, opts.emitter),

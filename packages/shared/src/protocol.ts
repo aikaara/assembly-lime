@@ -8,6 +8,7 @@ export type AgentRunStatus =
   | "failed"
   | "cancelled"
   | "awaiting_approval"
+  | "awaiting_followup"
   | "plan_approved";
 
 export type PreviewDeploymentStatus =
@@ -132,6 +133,7 @@ export type AgentEvent =
         description?: string;
         status: "pending" | "in_progress" | "completed";
       }>;
-    };
+    }
+  | { type: "user_message"; text: string };
 
 

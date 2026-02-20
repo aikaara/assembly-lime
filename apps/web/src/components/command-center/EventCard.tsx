@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   Globe,
   Monitor,
+  User,
 } from "lucide-react";
 
 export function EventCard({ event }: { event: AgentEvent }) {
@@ -94,13 +95,17 @@ export function EventCard({ event }: { event: AgentEvent }) {
           <StatusDot status={event.status} />
           <Badge
             variant={
-              event.status === "completed"
+              event.status === "completed" || event.status === "plan_approved"
                 ? "success"
                 : event.status === "failed"
                   ? "error"
                   : event.status === "running"
                     ? "info"
-                    : "neutral"
+                    : event.status === "awaiting_approval"
+                      ? "warning"
+                      : event.status === "awaiting_followup"
+                        ? "success"
+                        : "neutral"
             }
           >
             {event.status}
@@ -168,5 +173,22 @@ export function EventCard({ event }: { event: AgentEvent }) {
           </div>
         </div>
       );
+
+    case "user_message":
+      return (
+        <div className="flex gap-3 py-2 justify-end">
+          <div className="max-w-[80%] rounded-lg border border-emerald-900/50 bg-emerald-950/30 px-3 py-2">
+            <span className="text-xs text-emerald-500 mb-1 block">You</span>
+            <p className="text-sm text-zinc-200 whitespace-pre-wrap break-words">
+              {event.text}
+            </p>
+          </div>
+          <User className="h-4 w-4 mt-0.5 shrink-0 text-emerald-500" />
+        </div>
+      );
+
+    case "tasks":
+      // Rendered by TaskProgressWidget, not inline
+      return null;
   }
 }

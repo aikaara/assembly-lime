@@ -5,6 +5,7 @@ import type { Logger } from "pino";
 export interface BridgeEventsOpts {
   onMaxTurns?: () => void;
   maxTurns?: number;
+  suppressTerminalStatus?: boolean;
 }
 
 export interface EventBridge {
@@ -182,13 +183,19 @@ export function bridgeEvents(
         }
 
         const hasError = lastAssistant?.stopReason === "error" || lastAssistant?.errorMessage;
-        if (hasError) {
+        if (!opts?.suppressTerminalStatus) {
+          if (hasError) {
+            const errMsg = lastAssistant.errorMessage ?? "Agent run failed";
+            emitter.emitError(errMsg).catch(() => {});
+            emitter.emitStatus("failed", errMsg).catch(() => {});
+            log.error({ error: errMsg }, "agent run failed");
+          } else {
+            emitter.emitStatus("completed", "Agent run completed").catch(() => {});
+          }
+        } else if (hasError) {
           const errMsg = lastAssistant.errorMessage ?? "Agent run failed";
           emitter.emitError(errMsg).catch(() => {});
-          emitter.emitStatus("failed", errMsg).catch(() => {});
-          log.error({ error: errMsg }, "agent run failed");
-        } else {
-          emitter.emitStatus("completed", "Agent run completed").catch(() => {});
+          log.error({ error: errMsg }, "agent run failed (terminal status suppressed)");
         }
         break;
       }
