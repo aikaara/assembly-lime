@@ -7,7 +7,6 @@ import {
   useNodesState,
   useEdgesState,
   type Edge,
-  type Node,
   MarkerType,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -38,7 +37,7 @@ const EDGE_LABELS: Record<string, string> = {
   shared_config: "Config",
 };
 
-function layoutNodes(repoNodes: DependencyGraphResponse["nodes"]): Node[] {
+function layoutNodes(repoNodes: DependencyGraphResponse["nodes"]): RepoNodeType[] {
   const cols = Math.ceil(Math.sqrt(repoNodes.length));
   const spacingX = 280;
   const spacingY = 160;

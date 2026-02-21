@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import * as Select from "@radix-ui/react-select";
-import { ChevronDown, Check, Send, GitBranch } from "lucide-react";
+import { ChevronDown, Check, Send } from "lucide-react";
 import type { AgentProviderId, AgentMode, ProjectRepository } from "../../types";
 import { api } from "../../lib/api";
 

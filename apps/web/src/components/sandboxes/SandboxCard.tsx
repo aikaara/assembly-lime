@@ -21,7 +21,6 @@ export function SandboxCard({ sandbox, onDestroy, onViewLogs }: Props) {
   const isDaytona = sandbox.k8sNamespace === "daytona" || !sandbox.clusterId;
   const ProviderIcon = isDaytona ? Cloud : Server;
   const displayName = isDaytona ? sandbox.k8sPod : sandbox.k8sPod;
-  const idLabel = isDaytona ? "Sandbox" : "Pod";
 
   return (
     <div className="rounded-lg border border-zinc-700 bg-zinc-800/50 p-4">

@@ -233,6 +233,7 @@ export type DependencyGraphResponse = {
 
 export type FileTreeEntry = {
   path: string;
+  name: string;
   type: "file" | "dir";
   size?: number;
   children?: FileTreeEntry[];
@@ -242,6 +243,7 @@ export type RepoConfig = {
   id: string;
   repositoryId: string;
   filePath: string;
+  fileType: string;
   configType: string;
   detectedKeys: string[];
   createdAt: string;
