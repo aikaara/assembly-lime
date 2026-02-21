@@ -1,0 +1,7 @@
+{
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://assembly-line-ukroi.ondigitalocean.app/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

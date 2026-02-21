@@ -62,10 +62,11 @@ export function useAgentRunStream(runId: string | null) {
 
       dispatch({ type: "CONNECTION_STATE", state: "connecting" });
 
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const ws = new WebSocket(
-        `${protocol}//${window.location.host}/ws/agent-runs/${runId}`,
-      );
+      const apiBase = import.meta.env.VITE_API_WS_URL as string | undefined;
+      const wsUrl = apiBase
+        ? `${apiBase}/ws/agent-runs/${runId}`
+        : `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws/agent-runs/${runId}`;
+      const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.addEventListener("open", () => {
