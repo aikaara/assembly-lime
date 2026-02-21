@@ -4,7 +4,7 @@
   "installCommand": "bun install",
   "framework": "vite",
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://your-api-server.com/:path*" },
-    { "source": "/ws", "destination": "wss://your-api-server.com/ws" }
+    { "source": "/api/:path*", "destination": "https://assembly-line-ukroi.ondigitalocean.app/:path*" },
+    { "source": "/ws", "destination": "https://assembly-line-ukroi.ondigitalocean.app/ws" }
   ]
 }
