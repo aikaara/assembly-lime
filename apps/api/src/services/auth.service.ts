@@ -12,6 +12,7 @@ import {
 } from "@assembly-lime/shared/db/schema";
 import type { GitHubUser } from "../lib/github-oauth";
 import { encryptToken } from "../lib/encryption";
+import { autoSubscribeWebhooks } from "./webhook-subscribe.service";
 import { childLogger } from "../lib/logger";
 
 const log = childLogger({ module: "auth-service" });
@@ -241,6 +242,12 @@ async function syncReposFromGitHub(
   }
 
   log.info({ tenantId, connectorId, total: ghRepos.length, imported }, "auto-synced repos from GitHub");
+
+  // Auto-subscribe webhooks for all synced repos (fire-and-forget)
+  const allFullNames = ghRepos.map((r) => r.full_name);
+  autoSubscribeWebhooks(db, tenantId, connectorId, accessToken, allFullNames).catch((err) =>
+    log.error({ err, tenantId }, "auto-subscribe webhooks failed"),
+  );
 }
 
 export type MeResponse = {

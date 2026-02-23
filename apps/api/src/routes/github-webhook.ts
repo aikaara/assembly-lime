@@ -16,6 +16,8 @@ import { childLogger } from "../lib/logger";
 
 const log = childLogger({ module: "github-webhook" });
 
+const GLOBAL_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET;
+
 // ── Signature verification ──────────────────────────────────────────
 
 function verifySignature(
@@ -194,33 +196,55 @@ export function githubWebhookRoutes(db: Db) {
         ),
       );
 
-    if (!webhook) {
-      log.warn({ repoFullName, deliveryId }, "no active webhook found for repo");
-      set.status = 404;
-      return { error: "no webhook registered for this repository" };
+    let tenantId: number;
+
+    if (webhook) {
+      // 4a. Verify HMAC signature against per-repo secret
+      const secret = decryptToken(webhook.secretEnc);
+      if (!verifySignature(rawBody, secret, signatureHeader)) {
+        log.warn({ repoFullName, deliveryId }, "webhook signature verification failed");
+        set.status = 401;
+        return { error: "invalid signature" };
+      }
+      tenantId = webhook.tenantId;
+    } else {
+      // 4b. No registered webhook — verify global secret if configured, otherwise skip
+      if (GLOBAL_WEBHOOK_SECRET && !verifySignature(rawBody, GLOBAL_WEBHOOK_SECRET, signatureHeader)) {
+        log.warn({ repoFullName, deliveryId }, "global webhook signature verification failed");
+        set.status = 401;
+        return { error: "invalid signature" };
+      }
+
+      // Look up repo by fullName to find the tenant
+      const [repo] = await db
+        .select({ tenantId: repositories.tenantId })
+        .from(repositories)
+        .where(eq(repositories.fullName, repoFullName))
+        .limit(1);
+
+      if (!repo) {
+        log.warn({ repoFullName, deliveryId }, "webhook received for unknown repo");
+        set.status = 404;
+        return { error: "repository not found" };
+      }
+
+      tenantId = repo.tenantId;
+      log.info({ repoFullName, tenantId, deliveryId }, "processing webhook via repo fallback (no registered webhook)");
     }
 
-    // 4. Verify HMAC signature
-    const secret = decryptToken(webhook.secretEnc);
-    if (!verifySignature(rawBody, secret, signatureHeader)) {
-      log.warn({ repoFullName, deliveryId }, "webhook signature verification failed");
-      set.status = 401;
-      return { error: "invalid signature" };
-    }
-
-    // 5. Look up the repository record
+    // 5. Look up the full repository record
     const [repo] = await db
       .select()
       .from(repositories)
       .where(
         and(
-          eq(repositories.tenantId, webhook.tenantId),
+          eq(repositories.tenantId, tenantId),
           eq(repositories.fullName, repoFullName),
         ),
       );
 
     log.info(
-      { eventType, deliveryId, repoFullName, tenantId: webhook.tenantId },
+      { eventType, deliveryId, repoFullName, tenantId },
       "github webhook event received",
     );
 
@@ -228,22 +252,22 @@ export function githubWebhookRoutes(db: Db) {
     try {
       switch (eventType) {
         case "push":
-          await handlePush(db, webhook.tenantId, repo, payload as GhPushPayload);
+          await handlePush(db, tenantId, repo, payload as GhPushPayload);
           break;
         case "pull_request":
-          await handlePullRequest(db, webhook.tenantId, repo, payload as GhPullRequestPayload);
+          await handlePullRequest(db, tenantId, repo, payload as GhPullRequestPayload);
           break;
         case "pull_request_review":
-          await handlePullRequestReview(db, webhook.tenantId, repo, payload as GhPullRequestReviewPayload);
+          await handlePullRequestReview(db, tenantId, repo, payload as GhPullRequestReviewPayload);
           break;
         case "issues":
-          await handleIssues(db, webhook.tenantId, repo, payload as GhIssuesPayload);
+          await handleIssues(db, tenantId, repo, payload as GhIssuesPayload);
           break;
         case "issue_comment":
-          await handleIssueComment(db, webhook.tenantId, repo, payload as GhIssueCommentPayload);
+          await handleIssueComment(db, tenantId, repo, payload as GhIssueCommentPayload);
           break;
         case "workflow_run":
-          await handleWorkflowRun(db, webhook.tenantId, repo, payload as GhWorkflowRunPayload);
+          await handleWorkflowRun(db, tenantId, repo, payload as GhWorkflowRunPayload);
           break;
         default:
           log.info({ eventType, deliveryId }, "unhandled webhook event type");

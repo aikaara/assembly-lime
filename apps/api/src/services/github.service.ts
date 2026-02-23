@@ -2,6 +2,7 @@ import { eq, and } from "drizzle-orm";
 import type { Db } from "@assembly-lime/shared/db";
 import { repositories } from "@assembly-lime/shared/db/schema";
 import { getConnector, getConnectorToken } from "./connector.service";
+import { autoSubscribeWebhooks } from "./webhook-subscribe.service";
 import { childLogger } from "../lib/logger";
 
 const log = childLogger({ module: "github-service" });
@@ -171,5 +172,15 @@ export async function importRepos(
   }
 
   log.info({ tenantId, connectorId, count: inserted.length }, "repos imported");
+
+  // Auto-subscribe webhooks for newly imported repos (fire-and-forget)
+  if (inserted.length > 0) {
+    const token = getConnectorToken(connector);
+    const fullNames = inserted.map((r) => r.fullName);
+    autoSubscribeWebhooks(db, tenantId, connectorId, token, fullNames).catch((err) =>
+      log.error({ err, tenantId }, "auto-subscribe webhooks after import failed"),
+    );
+  }
+
   return inserted;
 }
