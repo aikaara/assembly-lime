@@ -50,7 +50,7 @@ export const sandboxes = pgTable(
     tenantId: bigint("tenant_id", { mode: "number" })
       .notNull()
       .references(() => tenants.id),
-    clusterId: bigint("cluster_id", { mode: "number" }).references(() => k8sClusters.id),
+    clusterId: bigint("cluster_id", { mode: "number" }).references(() => k8sClusters.id, { onDelete: "set null" }),
     repositoryId: bigint("repository_id", { mode: "number" })
       .notNull()
       .references(() => repositories.id),
