@@ -37,7 +37,7 @@ export function ReposPage() {
     try {
       const params = new URLSearchParams({ page: String(p), limit: String(PAGE_SIZE) });
       if (q.trim()) params.set("search", q.trim());
-      const res = await api.get<PaginatedResponse>(`/repositories/?${params}`);
+      const res = await api.get<PaginatedResponse>(`/repositories?${params}`);
       setRepos(res.data);
       setTotal(res.total);
       setTotalPages(res.totalPages);

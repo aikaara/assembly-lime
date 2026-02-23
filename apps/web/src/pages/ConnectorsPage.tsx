@@ -52,7 +52,7 @@ export function ConnectorsPage() {
   async function loadConnectors() {
     setLoading(true);
     try {
-      const data = await api.get<Connector[]>("/connectors/");
+      const data = await api.get<Connector[]>("/connectors");
       setConnectors(data);
     } catch (err) {
       console.error("Failed to load connectors:", err);
@@ -65,7 +65,7 @@ export function ConnectorsPage() {
     if (!token) return;
     setCreating(true);
     try {
-      await api.post("/connectors/", {
+      await api.post("/connectors", {
         provider: 1,
         authType: 1,
         accessToken: token,

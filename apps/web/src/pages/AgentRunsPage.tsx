@@ -30,7 +30,7 @@ export function AgentRunsPage() {
     const offset = (page - 1) * PAGE_SIZE;
     api
       .get<{ data: AgentRunDetailResponse[]; total: number }>(
-        `/projects/${projectId}/runs/?offset=${offset}&limit=${PAGE_SIZE}`
+        `/projects/${projectId}/runs?offset=${offset}&limit=${PAGE_SIZE}`
       )
       .then((res) => {
         setRuns(res.data);

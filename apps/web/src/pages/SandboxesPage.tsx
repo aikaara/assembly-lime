@@ -31,9 +31,9 @@ export function SandboxesPage() {
 
   useEffect(() => {
     Promise.all([
-      api.get<Sandbox[]>("/sandboxes/"),
-      api.get<Repository[]>("/repositories/"),
-      api.get<K8sCluster[]>("/k8s-clusters/"),
+      api.get<Sandbox[]>("/sandboxes"),
+      api.get<Repository[]>("/repositories"),
+      api.get<K8sCluster[]>("/k8s-clusters"),
       api.get<SandboxConfig>("/sandboxes/config"),
     ])
       .then(([s, r, c, cfg]) => {
@@ -53,7 +53,7 @@ export function SandboxesPage() {
       return;
     }
     api
-      .get<EnvVarSet[]>(`/env-var-sets/?scopeType=project&scopeId=${repoId}`)
+      .get<EnvVarSet[]>(`/env-var-sets?scopeType=project&scopeId=${repoId}`)
       .then(setEnvVarSets)
       .catch(() => setEnvVarSets([]));
   }, [repoId]);
@@ -78,8 +78,8 @@ export function SandboxesPage() {
       if (envVarSetId) {
         body.envVarSetId = Number(envVarSetId);
       }
-      await api.post("/sandboxes/", body);
-      const data = await api.get<Sandbox[]>("/sandboxes/");
+      await api.post("/sandboxes", body);
+      const data = await api.get<Sandbox[]>("/sandboxes");
       setSandboxes(data);
       setRepoId("");
       setBranch("");
@@ -97,7 +97,7 @@ export function SandboxesPage() {
   async function handleDestroy(id: string) {
     try {
       await api.delete(`/sandboxes/${id}`);
-      const data = await api.get<Sandbox[]>("/sandboxes/");
+      const data = await api.get<Sandbox[]>("/sandboxes");
       setSandboxes(data);
     } catch (err) {
       console.error("Failed to destroy sandbox:", err);

@@ -60,7 +60,7 @@ export function ClustersPage() {
     if (!canSubmit) return;
     setCreating(true);
     try {
-      await api.post("/k8s-clusters/", {
+      await api.post("/k8s-clusters", {
         name,
         apiUrl: apiUrl || undefined,
         kubeconfig: kubeconfig || undefined,

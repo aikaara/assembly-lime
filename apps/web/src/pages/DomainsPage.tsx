@@ -19,7 +19,7 @@ export function DomainsPage() {
   async function loadDomains() {
     setLoading(true);
     try {
-      const data = await api.get<Domain[]>("/domains/");
+      const data = await api.get<Domain[]>("/domains");
       setDomains(data);
     } catch (err) {
       console.error("Failed to load domains:", err);
@@ -32,7 +32,7 @@ export function DomainsPage() {
     if (!domainName) return;
     setCreating(true);
     try {
-      await api.post("/domains/", { domain: domainName });
+      await api.post("/domains", { domain: domainName });
       setDomainName("");
       setShowCreate(false);
       await loadDomains();

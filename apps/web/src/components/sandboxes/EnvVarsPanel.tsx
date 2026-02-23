@@ -37,7 +37,7 @@ export function EnvVarsPanel({ repos }: Props) {
     }
     setLoading(true);
     api
-      .get<EnvVarSet[]>(`/env-var-sets/?scopeType=project&scopeId=${selectedRepoId}`)
+      .get<EnvVarSet[]>(`/env-var-sets?scopeType=project&scopeId=${selectedRepoId}`)
       .then((data) => {
         setSets(data);
         if (data.length > 0 && !activeSetId) {
@@ -80,7 +80,7 @@ export function EnvVarsPanel({ repos }: Props) {
       const totalKeys = configs.reduce((acc, c) => acc + c.detectedKeys.length, 0);
       setMessage({ text: `Scanned — found ${totalKeys} env keys across ${configs.length} config file(s)`, type: "success" });
       // Reload sets
-      const data = await api.get<EnvVarSet[]>(`/env-var-sets/?scopeType=project&scopeId=${selectedRepoId}`);
+      const data = await api.get<EnvVarSet[]>(`/env-var-sets?scopeType=project&scopeId=${selectedRepoId}`);
       setSets(data);
       if (data.length > 0) setActiveSetId(data[0]!.id);
     } catch {
@@ -93,7 +93,7 @@ export function EnvVarsPanel({ repos }: Props) {
   async function handleCreateSet() {
     if (!selectedRepoId || !newSetName.trim()) return;
     try {
-      const row = await api.post<EnvVarSet>("/env-var-sets/", {
+      const row = await api.post<EnvVarSet>("/env-var-sets", {
         scopeType: "project",
         scopeId: Number(selectedRepoId),
         name: newSetName.trim(),
