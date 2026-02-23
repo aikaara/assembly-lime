@@ -122,6 +122,10 @@ export class AgentEventEmitter {
     await this.postInternal("code-diffs", data);
   }
 
+  async emitSandboxInfo(sandboxId: string, repoDir: string): Promise<void> {
+    await this.postInternal("agent-sandbox-info", { sandboxId, repoDir });
+  }
+
   // ── Session persistence ──
 
   async emitSessionSnapshot(messages: unknown[]): Promise<void> {
@@ -190,6 +194,24 @@ export class AgentEventEmitter {
       return data.messages.map((m) => ({ id: Number(m.id), text: m.text, ts: m.ts }));
     } catch {
       return [];
+    }
+  }
+
+  // ── Run status polling (for cancellation detection) ──
+
+  async pollRunStatus(): Promise<string | null> {
+    try {
+      const res = await fetch(
+        `${this.baseUrl}/internal/agent-run-status/${this.runId}`,
+        {
+          headers: { "x-internal-key": INTERNAL_KEY },
+        },
+      );
+      if (!res.ok) return null;
+      const data = (await res.json()) as { status: string };
+      return data.status;
+    } catch {
+      return null;
     }
   }
 

@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia";
 import { eq, asc, and } from "drizzle-orm";
 import type { Db } from "@assembly-lime/shared/db";
 import { agentEvents, agentRuns, agentRunRepos, repositories, tickets } from "@assembly-lime/shared/db/schema";
+import { DEFAULT_CHAINS, type AgentChainConfig } from "@assembly-lime/shared";
 import { requireAuth } from "../middleware/auth";
 import { createAgentRun, getAgentRun } from "../services/agent-run.service";
 import { resumeAgentRun } from "../services/agent-resume.service";
@@ -43,6 +44,14 @@ export function agentRunRoutes(db: Db) {
           };
         }
 
+        // Resolve chain config from chainId or inline chainConfig
+        let resolvedChainConfig: AgentChainConfig | undefined;
+        if (body.chainId && DEFAULT_CHAINS[body.chainId]) {
+          resolvedChainConfig = structuredClone(DEFAULT_CHAINS[body.chainId]);
+        } else if (body.chainConfig) {
+          resolvedChainConfig = body.chainConfig as AgentChainConfig;
+        }
+
         const run = await createAgentRun(db, {
           tenantId: auth!.tenantId,
           projectId: body.projectId,
@@ -54,7 +63,16 @@ export function agentRunRoutes(db: Db) {
           repo,
           constraints: body.constraints,
         });
-        log.info({ runId: run.id, provider: body.provider, mode: body.mode }, "agent run created");
+
+        // Persist chain config if provided
+        if (resolvedChainConfig) {
+          await db
+            .update(agentRuns)
+            .set({ chainConfig: resolvedChainConfig })
+            .where(eq(agentRuns.id, run.id));
+        }
+
+        log.info({ runId: run.id, provider: body.provider, mode: body.mode, hasChain: !!resolvedChainConfig }, "agent run created");
         return {
           id: String(run.id),
           status: run.status,
@@ -96,6 +114,8 @@ export function agentRunRoutes(db: Db) {
               allowedTools: t.Optional(t.Array(t.String())),
             })
           ),
+          chainId: t.Optional(t.String()),
+          chainConfig: t.Optional(t.Any()),
         }),
       }
     )
@@ -116,10 +136,9 @@ export function agentRunRoutes(db: Db) {
           return { error: "run not found" };
         }
 
-        const rejectedStatuses = ["failed", "cancelled"];
-        if (rejectedStatuses.includes(run.status)) {
+        if (run.status === "cancelled") {
           set.status = 409;
-          return { error: `run status is "${run.status}", cannot send messages` };
+          return { error: `run status is "cancelled", cannot send messages` };
         }
 
         const event = {
@@ -137,8 +156,10 @@ export function agentRunRoutes(db: Db) {
         broadcastToWs(runId, event);
         log.info({ runId, textLength: body.text.length }, "user message sent to agent run");
 
-        // If the worker has exited (terminal/waiting status), re-dispatch to continue
-        const workerExitedStatuses = ["completed", "awaiting_approval"];
+        // If the worker has exited (terminal/waiting status), re-dispatch to continue.
+        // "awaiting_followup" means the follow-up loop timed out and the task exited.
+        // "running" means the worker is still active — the polling loop will pick up the message.
+        const workerExitedStatuses = ["completed", "awaiting_approval", "awaiting_followup", "failed"];
         if (workerExitedStatuses.includes(run.status)) {
           log.info({ runId, previousStatus: run.status }, "worker exited — dispatching continuation");
           try {
@@ -178,6 +199,18 @@ export function agentRunRoutes(db: Db) {
           return { error: `run status is "${run.status}", expected "awaiting_approval"` };
         }
 
+        // Complete the wait token to unblock the Trigger.dev task (if checkpointed)
+        const approvalTokenId = (run as any).approvalTokenId as string | null;
+        if (approvalTokenId) {
+          try {
+            const { wait } = await import("@trigger.dev/sdk/v3");
+            await wait.completeToken(approvalTokenId, { approved: false });
+            log.info({ runId, approvalTokenId }, "wait token completed (rejected)");
+          } catch (err) {
+            log.warn({ err, runId }, "failed to complete wait token on reject");
+          }
+        }
+
         await db
           .update(agentRuns)
           .set({ status: "cancelled", endedAt: new Date(), outputSummary: "Rejected by user" })
@@ -195,6 +228,22 @@ export function agentRunRoutes(db: Db) {
           payloadJson: statusEvent,
         });
         broadcastToWs(runId, statusEvent);
+
+        // Delete sandbox on reject (fire-and-forget)
+        const sandboxId = (run as any).sandboxId as string | null;
+        if (sandboxId) {
+          (async () => {
+            try {
+              const { Daytona } = await import("@daytonaio/sdk");
+              const daytona = new Daytona();
+              const sandbox = await daytona.get(sandboxId);
+              await daytona.delete(sandbox);
+              log.info({ runId, sandboxId }, "sandbox deleted on reject");
+            } catch (err) {
+              log.warn({ err, runId, sandboxId }, "failed to delete sandbox on reject");
+            }
+          })();
+        }
 
         log.info({ runId }, "agent run rejected by user");
         return { ok: true };
@@ -221,6 +270,19 @@ export function agentRunRoutes(db: Db) {
         if (run.status !== "awaiting_approval") {
           set.status = 409;
           return { error: `run status is "${run.status}", expected "awaiting_approval"` };
+        }
+
+        // Complete the wait token to unblock the Trigger.dev task (if checkpointed)
+        const approvalTokenId = (run as any).approvalTokenId as string | null;
+        if (approvalTokenId) {
+          try {
+            const { wait } = await import("@trigger.dev/sdk/v3");
+            const action = run.mode === "plan" ? "spawn_implement" : "create_pr";
+            await wait.completeToken(approvalTokenId, { approved: true, action });
+            log.info({ runId, approvalTokenId, action }, "wait token completed (approved)");
+          } catch (err) {
+            log.warn({ err, runId }, "failed to complete wait token on approve (may be legacy run)");
+          }
         }
 
         // ── Plan mode: approve → spawn implement runs for child tasks ──

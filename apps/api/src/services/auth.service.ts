@@ -174,8 +174,15 @@ async function ensureConnector(
   return connectorId;
 }
 
+/** Extract the "next" page URL from a GitHub Link header. */
+function parseNextLink(linkHeader: string | null): string | null {
+  if (!linkHeader) return null;
+  const match = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+  return match?.[1] ?? null;
+}
+
 /**
- * Fetch repos from GitHub and import them. Safe to run as fire-and-forget.
+ * Fetch repos from GitHub (all pages) and import them. Safe to run as fire-and-forget.
  */
 async function syncReposFromGitHub(
   db: Db,
@@ -183,27 +190,35 @@ async function syncReposFromGitHub(
   connectorId: number,
   accessToken: string,
 ) {
-  const res = await fetch(`${GITHUB_API}/user/repos?per_page=100&sort=updated`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
-  });
-
-  if (!res.ok) {
-    log.warn({ status: res.status, tenantId }, "failed to fetch repos from GitHub");
-    return;
-  }
-
-  const ghRepos = (await res.json()) as Array<{
+  const ghRepos: Array<{
     id: number;
     name: string;
     full_name: string;
     clone_url: string;
     default_branch: string;
     owner: { login: string };
-  }>;
+  }> = [];
+
+  let url: string | null = `${GITHUB_API}/user/repos?per_page=100&sort=updated`;
+
+  while (url) {
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+
+    if (!res.ok) {
+      log.warn({ status: res.status, tenantId, url }, "failed to fetch repos from GitHub");
+      break;
+    }
+
+    const page = (await res.json()) as typeof ghRepos;
+    ghRepos.push(...page);
+    url = parseNextLink(res.headers.get("link"));
+  }
 
   let imported = 0;
   for (const r of ghRepos) {

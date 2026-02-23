@@ -8,7 +8,7 @@ import { runUnifiedAgent } from "../worker-agent/src/run";
  */
 export const claudeAgentTask = task({
   id: "claude-agent",
-  maxDuration: 3600,
+  maxDuration: 14400,
   retry: { maxAttempts: 1 },
   run: async (payload: AgentJobPayload) => {
     logger.info("claude-agent task forwarding to unified agent", {

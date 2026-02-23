@@ -23,6 +23,51 @@ async function githubFetch(token: string, path: string) {
   return res.json();
 }
 
+/** Extract the "next" page URL from a GitHub Link header. */
+function parseNextLink(linkHeader: string | null): string | null {
+  if (!linkHeader) return null;
+  const match = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+  return match?.[1] ?? null;
+}
+
+/** Fetch all pages from a GitHub list endpoint, following Link headers. */
+async function githubFetchAllPages<T>(token: string, initialPath: string): Promise<T[]> {
+  const all: T[] = [];
+  let url: string | null = `${GITHUB_API}${initialPath}`;
+
+  while (url) {
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`GitHub API ${url} failed (${res.status}): ${text}`);
+    }
+    const page = (await res.json()) as T[];
+    all.push(...page);
+    url = parseNextLink(res.headers.get("link"));
+  }
+
+  return all;
+}
+
+type GitHubRepo = {
+  id: number;
+  name: string;
+  full_name: string;
+  clone_url: string;
+  default_branch: string;
+  owner: { login: string };
+  private: boolean;
+  description: string | null;
+  language: string | null;
+  updated_at: string;
+};
+
 export async function listOrgRepos(db: Db, tenantId: number, connectorId: number) {
   const connector = await getConnector(db, tenantId, connectorId);
   if (!connector) throw new Error("Connector not found");
@@ -30,19 +75,9 @@ export async function listOrgRepos(db: Db, tenantId: number, connectorId: number
 
   const org = connector.externalOrg;
   const path = org ? `/orgs/${org}/repos?per_page=100&sort=updated` : "/user/repos?per_page=100&sort=updated";
-  const repos = await githubFetch(token, path);
-  return repos as Array<{
-    id: number;
-    name: string;
-    full_name: string;
-    clone_url: string;
-    default_branch: string;
-    owner: { login: string };
-    private: boolean;
-    description: string | null;
-    language: string | null;
-    updated_at: string;
-  }>;
+  const repos = await githubFetchAllPages<GitHubRepo>(token, path);
+  log.info({ tenantId, connectorId, repoCount: repos.length, org: org ?? "(personal)" }, "fetched all repo pages from GitHub");
+  return repos;
 }
 
 export async function getRepoDetails(

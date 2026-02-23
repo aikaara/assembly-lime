@@ -61,7 +61,12 @@ export async function resumeAgentRun(
     sandbox: { provider: "daytona" },
   };
 
-  // Attach repo from run history, or fall back to project repos
+  // Mark as continuation — worker will skip initial prompt and go to follow-up loop
+  payload.isContinuation = true;
+
+  // Attach repo from run history, or fall back to project repos.
+  // Use defaultBranch (NOT the working branch) since working branch may only
+  // exist in the previous sandbox and was never pushed to remote (e.g., plan mode).
   if (runRepos.length > 0) {
     const r = runRepos[0]!;
     payload.repo = {
@@ -71,7 +76,6 @@ export async function resumeAgentRun(
       name: r.name,
       cloneUrl: r.cloneUrl,
       defaultBranch: r.defaultBranch,
-      ref: r.branch,
     };
 
     // Enrich auth token

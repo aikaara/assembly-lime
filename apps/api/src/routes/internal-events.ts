@@ -79,6 +79,43 @@ export function internalEventRoutes(db: Db) {
             }
           }
           await db.update(agentRuns).set(updates).where(eq(agentRuns.id, runId));
+
+          // Chain progression: on completed, advance to next step if chain is configured
+          if (event.status === "completed") {
+            try {
+              const { progressChain } = await import("../services/chain.service");
+              await progressChain(db, runId);
+            } catch (err) {
+              log.warn({ err, runId }, "chain progression failed (non-fatal)");
+            }
+          }
+
+          // Auto-approve: if the run's chain step has autoApprove, complete the wait token
+          if (event.status === "awaiting_approval") {
+            try {
+              const [currentRun] = await db
+                .select({ chainConfig: agentRuns.chainConfig, approvalTokenId: agentRuns.approvalTokenId })
+                .from(agentRuns)
+                .where(eq(agentRuns.id, runId));
+              if (currentRun?.chainConfig && currentRun.approvalTokenId) {
+                const chain = currentRun.chainConfig as import("@assembly-lime/shared").AgentChainConfig;
+                const currentStep = chain.steps[chain.currentStepIndex];
+                if (currentStep?.autoApprove) {
+                  log.info({ runId, stepIndex: chain.currentStepIndex }, "auto-approving chain step after 3s delay");
+                  setTimeout(async () => {
+                    try {
+                      const { wait } = await import("@trigger.dev/sdk/v3");
+                      await wait.completeToken(currentRun.approvalTokenId!, { approved: true, action: "auto" });
+                    } catch (err) {
+                      log.warn({ err, runId }, "auto-approve wait.completeToken failed");
+                    }
+                  }, 3000);
+                }
+              }
+            } catch (err) {
+              log.warn({ err, runId }, "auto-approve check failed (non-fatal)");
+            }
+          }
         }
 
         // 4. Broadcast to WebSocket
@@ -330,6 +367,64 @@ export function internalEventRoutes(db: Db) {
         params: t.Object({ runId: t.String() }),
       }
     )
+    // ── Sandbox info: persist sandbox ID for lifecycle management ──
+    .post(
+      "/agent-sandbox-info/:runId",
+      async ({ request, params, body, set }) => {
+        const key = request.headers.get("x-internal-key");
+        if (!key || !verifyInternalKey(key)) {
+          set.status = 401;
+          return { error: "unauthorized" };
+        }
+
+        const runId = Number(params.runId);
+        if (Number.isNaN(runId)) {
+          set.status = 400;
+          return { error: "invalid runId" };
+        }
+
+        const data = body as { sandboxId: string; repoDir: string };
+        await db
+          .update(agentRuns)
+          .set({ sandboxId: data.sandboxId })
+          .where(eq(agentRuns.id, runId));
+
+        log.info({ runId, sandboxId: data.sandboxId }, "sandbox info stored");
+        return { ok: true };
+      },
+      {
+        params: t.Object({ runId: t.String() }),
+      }
+    )
+    // ── Approval token: persist Trigger.dev wait token ID ──
+    .post(
+      "/agent-approval-token/:runId",
+      async ({ request, params, body, set }) => {
+        const key = request.headers.get("x-internal-key");
+        if (!key || !verifyInternalKey(key)) {
+          set.status = 401;
+          return { error: "unauthorized" };
+        }
+
+        const runId = Number(params.runId);
+        if (Number.isNaN(runId)) {
+          set.status = 400;
+          return { error: "invalid runId" };
+        }
+
+        const data = body as { approvalTokenId: string };
+        await db
+          .update(agentRuns)
+          .set({ approvalTokenId: data.approvalTokenId })
+          .where(eq(agentRuns.id, runId));
+
+        log.info({ runId, approvalTokenId: data.approvalTokenId }, "approval token stored");
+        return { ok: true };
+      },
+      {
+        params: t.Object({ runId: t.String() }),
+      }
+    )
     // ── Session persistence: store/retrieve full conversation snapshot ──
     .post(
       "/agent-session/:runId",
@@ -398,6 +493,37 @@ export function internalEventRoutes(db: Db) {
         }
 
         return { messages: run.sessionMessagesJson ?? null };
+      },
+      {
+        params: t.Object({ runId: t.String() }),
+      }
+    )
+    // ── Run status: lightweight status check for worker polling ──
+    .get(
+      "/agent-run-status/:runId",
+      async ({ request, params, set }) => {
+        const key = request.headers.get("x-internal-key");
+        if (!key || !verifyInternalKey(key)) {
+          set.status = 401;
+          return { error: "unauthorized" };
+        }
+
+        const runId = Number(params.runId);
+        if (Number.isNaN(runId)) {
+          set.status = 400;
+          return { error: "invalid runId" };
+        }
+
+        const [run] = await db
+          .select({ status: agentRuns.status })
+          .from(agentRuns)
+          .where(eq(agentRuns.id, runId));
+        if (!run) {
+          set.status = 404;
+          return { error: "run not found" };
+        }
+
+        return { status: run.status };
       },
       {
         params: t.Object({ runId: t.String() }),

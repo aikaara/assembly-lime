@@ -79,17 +79,44 @@ export async function selectRepo(
     return { selected: repos[0]!, reasoning: "only candidate" };
   }
 
-  // Cap candidates — prioritize isPrimary repos and those with roleLabels
+  // Pre-filter candidates by keyword relevance from the task prompt
   let candidates = repos;
   if (repos.length > MAX_CANDIDATES) {
-    log.info({ total: repos.length, cap: MAX_CANDIDATES }, "capping repo candidates for LLM");
-    const prioritized = repos.filter((r) => r.isPrimary || r.roleLabel);
-    const rest = repos.filter((r) => !r.isPrimary && !r.roleLabel);
-    candidates = [...prioritized, ...rest].slice(0, MAX_CANDIDATES);
+    // Extract meaningful keywords from the prompt (3+ chars, lowercase)
+    const stopWords = new Set(["the", "and", "for", "that", "this", "with", "from", "have", "are", "was", "will", "can", "not", "but", "all", "been", "has", "had", "its", "they", "how", "what", "explain", "describe", "create", "update", "implement", "add", "fix", "bug", "feature", "please", "structure", "help"]);
+    const keywords = taskPrompt
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-_]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length >= 3 && !stopWords.has(w));
+
+    // Score each repo by keyword matches against name/fullName
+    const scored = repos.map((r) => {
+      const haystack = `${r.fullName ?? ""} ${r.name} ${r.owner}`.toLowerCase();
+      let score = 0;
+      if (r.isPrimary) score += 100;
+      if (r.roleLabel) score += 50;
+      for (const kw of keywords) {
+        if (haystack.includes(kw)) score += 10;
+      }
+      return { repo: r, score };
+    });
+
+    // Sort by score descending, take top MAX_CANDIDATES
+    scored.sort((a, b) => b.score - a.score);
+    candidates = scored.slice(0, MAX_CANDIDATES).map((s) => s.repo);
+
+    const matchedCount = scored.filter((s) => s.score > 0).length;
+    log.info({
+      total: repos.length,
+      cap: MAX_CANDIDATES,
+      keywords: keywords.slice(0, 10),
+      matchedCount,
+    }, "pre-filtered repo candidates by keyword relevance");
   }
 
   try {
-    const model = getModel("amazon-bedrock", "us.anthropic.claude-haiku-4-5-20251001-v1:0");
+    const model = getModel("amazon-bedrock", "us.anthropic.claude-sonnet-4-5-20250929-v1:0");
 
     const result = await completeSimple(model, {
       systemPrompt: SYSTEM_PROMPT,

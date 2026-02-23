@@ -98,6 +98,8 @@ export type AgentJobPayload = {
     gitCredentialSecretName: string;
   };
   images?: ImageAttachment[];
+  /** When true, worker skips initial prompt and goes straight to follow-up loop. */
+  isContinuation?: boolean;
 };
 
 export type AgentEvent =
@@ -136,4 +138,34 @@ export type AgentEvent =
     }
   | { type: "user_message"; text: string };
 
+// ── Agent Chains / Pipelines ──────────────────────────────────────
 
+export type AgentChainStep = {
+  mode: AgentMode;
+  autoApprove: boolean;
+  condition?: "always" | "on_success" | "on_issues_found";
+};
+
+export type AgentChainConfig = {
+  steps: AgentChainStep[];
+  currentStepIndex: number;
+};
+
+export const DEFAULT_CHAINS: Record<string, AgentChainConfig> = {
+  "full-pipeline": {
+    steps: [
+      { mode: "plan", autoApprove: false },
+      { mode: "implement", autoApprove: true },
+      { mode: "review", autoApprove: true, condition: "always" },
+      { mode: "bugfix", autoApprove: true, condition: "on_issues_found" },
+    ],
+    currentStepIndex: 0,
+  },
+  "implement-and-review": {
+    steps: [
+      { mode: "implement", autoApprove: true },
+      { mode: "review", autoApprove: true, condition: "always" },
+    ],
+    currentStepIndex: 0,
+  },
+};

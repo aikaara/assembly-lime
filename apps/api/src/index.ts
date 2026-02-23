@@ -21,6 +21,7 @@ import { repositoryDependencyRoutes } from "./routes/repository-dependencies";
 import { envVarRoutes } from "./routes/env-vars";
 import { wsRoutes } from "./routes/ws";
 import { internalEventRoutes } from "./routes/internal-events";
+import { githubWebhookRoutes } from "./routes/github-webhook";
 
 // ── Initialize session store ─────────────────────────────────────────
 initSessionStore(db);
@@ -59,6 +60,7 @@ const app = new Elysia()
   .use(repositoryDependencyRoutes(db))
   .use(envVarRoutes(db))
   .use(internalEventRoutes(db))
+  .use(githubWebhookRoutes(db))
   .use(wsRoutes())
   .listen({ port, hostname: "0.0.0.0" });
 

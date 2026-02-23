@@ -4,7 +4,9 @@ import type { Logger } from "pino";
 
 export interface BridgeEventsOpts {
   onMaxTurns?: () => void;
+  onCheckpoint?: (turnNumber: number) => void;
   maxTurns?: number;
+  checkpointInterval?: number;
   suppressTerminalStatus?: boolean;
 }
 
@@ -32,6 +34,7 @@ export function bridgeEvents(
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   const maxTurns = opts?.maxTurns ?? 50;
+  const checkpointInterval = opts?.checkpointInterval ?? 10;
 
   const handler = (event: PiAgentEvent) => {
     switch (event.type) {
@@ -118,6 +121,13 @@ export function bridgeEvents(
         }
         turnTextBuffer = "";
         turnThinkingBuffer = "";
+
+        // Periodic checkpoint callback (every N turns)
+        if (opts?.onCheckpoint && turnNumber > 0 && turnNumber % checkpointInterval === 0) {
+          try {
+            opts.onCheckpoint(turnNumber);
+          } catch { /* non-fatal */ }
+        }
 
         // Emit LLM call dump
         const msg = event.message as any;

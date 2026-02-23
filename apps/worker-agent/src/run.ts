@@ -11,7 +11,34 @@ import { createDaytonaOps } from "./ops/daytona-ops";
 import type { GitOperations } from "./tools/git";
 import type { PRContext } from "./tools/create-pr";
 
-export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
+export type RunResult = {
+  needsApproval: boolean;
+  approvalMode?: "plan" | "code";
+  approvalMessage?: string;
+  workspace?: DaytonaWorkspace;
+  prContext?: PRContext;
+  previewUrl?: string;
+};
+
+/** Retry wrapper for transient API errors (429, 503, 529). */
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastError = err;
+      const status = err?.status ?? err?.statusCode ?? err?.error?.status;
+      const isTransient = status === 429 || status === 503 || status === 529;
+      if (!isTransient || attempt === maxRetries) throw err;
+      const delay = Math.pow(2, attempt + 1) * 1000; // 2s, 4s, 8s
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastError;
+}
+
+export async function runUnifiedAgent(payload: AgentJobPayload): Promise<RunResult> {
   const log = logger.child({ runId: payload.runId, provider: payload.provider, mode: payload.mode });
   const emitter = new AgentEventEmitter(payload.runId);
 
@@ -71,9 +98,10 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
       provider: payload.provider,
       mode: payload.mode,
       repoName: payload.repo.name,
+      envVars: payload.sandbox?.envVars,
     });
 
-    // Emit sandbox URL immediately
+    // Emit sandbox URL immediately + persist sandbox ID for reconnection
     const sandboxUrl = getDaytonaSandboxUrl(workspace.sandbox.id);
     await emitter.emit({
       type: "sandbox",
@@ -82,6 +110,7 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
       provider: "daytona",
     });
     await emitter.emitArtifact("sandbox", sandboxUrl, "text/html");
+    await emitter.emitSandboxInfo(workspace.sandbox.id, workspace.repoDir);
     log.info({ sandboxId: workspace.sandbox.id }, "Daytona sandbox created");
 
     // Clone repo into sandbox with auth token
@@ -187,12 +216,30 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
       initialMessages,
     });
 
-    // 9. Bridge events with max-turns safety (suppress terminal status — run.ts manages it)
+    // 9. Bridge events with max-turns safety, checkpoints, and usage monitoring
+    const timeBudgetSec = payload.constraints?.timeBudgetSec ?? 14400;
     const bridge = bridgeEvents(emitter, log, {
       maxTurns: 50,
       suppressTerminalStatus: true,
+      checkpointInterval: 10,
       onMaxTurns: () => {
         agent.steer("You have used the maximum number of turns. Wrap up: commit any pending changes, summarize what you've done, and stop.");
+      },
+      onCheckpoint: (turnNumber) => {
+        // Snapshot session every 10 turns
+        emitter.emitSessionSnapshot(agent.state.messages).catch(() => {});
+        log.info({ turnNumber, messageCount: agent.state.messages.length }, "periodic session checkpoint");
+
+        // Usage monitoring: warn agent if approaching time budget
+        try {
+          const { usage } = require("@trigger.dev/sdk/v3");
+          const current = usage.getCurrent();
+          const elapsedSec = current?.attempt?.durationMs ? current.attempt.durationMs / 1000 : 0;
+          if (elapsedSec > timeBudgetSec * 0.9) {
+            agent.steer("You are approaching the time budget. Wrap up current work.");
+            log.warn({ elapsedSec, timeBudgetSec }, "approaching time budget — steering agent to wrap up");
+          }
+        } catch { /* usage API may not be available outside Trigger.dev runtime */ }
       },
     });
     let unsubscribe = agent.subscribe(bridge.handler);
@@ -205,39 +252,69 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
       status: "running",
     }).catch(() => {});
 
-    // 11. Run the prompt
-    log.info("starting agent prompt");
-    await agent.prompt(payload.inputPrompt);
-    await agent.waitForIdle();
+    // 11. Run the prompt or skip if this is a continuation (follow-up re-dispatch)
+    if (payload.isContinuation && initialMessages && initialMessages.length > 0) {
+      // Continuation: session was restored, skip initial prompt.
+      // The follow-up loop below will pick up pending user messages from the DB.
+      log.info({ messageCount: initialMessages.length }, "continuation mode — skipping initial prompt, going to follow-up loop");
+    } else {
+      log.info("starting agent prompt");
 
-    unsubscribe();
-    log.info({ totalTurns: bridge.getTurnNumber() }, "agent initial prompt completed");
+      // Start mid-prompt steering poller: check for user messages every 2s
+      let steeringLastEventId = 0;
+      const steeringPoller = setInterval(async () => {
+        try {
+          const msgs = await emitter.pollUserMessages(steeringLastEventId);
+          if (msgs.length > 0) {
+            steeringLastEventId = Math.max(...msgs.map((m) => m.id));
+            const text = msgs.map((m) => m.text).join("\n\n");
+            agent.steer(text);
+            log.info({ messageCount: msgs.length }, "mid-prompt steering injected");
+          }
+        } catch { /* non-fatal */ }
+      }, 2000);
 
-    // Snapshot session after initial prompt
-    await emitter.emitSessionSnapshot(agent.state.messages);
-    log.info({ messageCount: agent.state.messages.length }, "session snapshot saved after initial prompt");
+      await withRetry(() => agent.prompt(payload.inputPrompt));
+      await agent.waitForIdle();
+
+      clearInterval(steeringPoller);
+
+      unsubscribe();
+      log.info({ totalTurns: bridge.getTurnNumber() }, "agent initial prompt completed");
+
+      // Snapshot session after initial prompt
+      await emitter.emitSessionSnapshot(agent.state.messages);
+      log.info({ messageCount: agent.state.messages.length }, "session snapshot saved after initial prompt");
+    }
 
     // ── Follow-up polling loop ──────────────────────────────────────
     // After initial prompt completes, enter a polling loop waiting for user messages.
-    // The agent stays alive and can process follow-ups via agent.followUp().
+    // Uses a short initial timeout (30s) when no follow-ups received.
+    // Escalates to 15 min idle timeout after the first follow-up is processed.
 
-    const FOLLOWUP_POLL_INTERVAL_MS = 3_000;
-    const FOLLOWUP_IDLE_TIMEOUT_MS = 15 * 60 * 1_000; // 15 min idle timeout
+    const FOLLOWUP_POLL_INTERVAL_MS = 1_000;
+    const FOLLOWUP_INITIAL_IDLE_MS = 30_000; // 30s before any follow-up
+    const FOLLOWUP_ACTIVE_IDLE_MS = 15 * 60 * 1_000; // 15 min after a follow-up
     const TRIGGER_BUDGET_RESERVE_MS = 120_000; // reserve 2 min for post-run
+    const STATUS_CHECK_INTERVAL = 10; // check run status every 10 polls
     const runStartTime = Date.now();
-    const timeBudgetMs = (payload.constraints?.timeBudgetSec ?? 3600) * 1000;
+    const timeBudgetMs = timeBudgetSec * 1000;
     let lastEventId = 0;
+    // For continuations, messages are already pending — use the active (long) timeout
+    let hasReceivedFollowUp = !!payload.isContinuation;
 
     await emitter.emitStatus("awaiting_followup", "Ready for follow-up messages.");
     let lastActivityTime = Date.now();
+    let pollCount = 0;
 
     let exitReason = "idle_timeout";
 
     while (true) {
-      // Check idle timeout
-      if (Date.now() - lastActivityTime > FOLLOWUP_IDLE_TIMEOUT_MS) {
-        exitReason = "idle_timeout";
-        log.info({ idleMs: Date.now() - lastActivityTime }, "follow-up idle timeout reached");
+      // Check idle timeout — short if no follow-ups ever received, long otherwise
+      const idleTimeout = hasReceivedFollowUp ? FOLLOWUP_ACTIVE_IDLE_MS : FOLLOWUP_INITIAL_IDLE_MS;
+      if (Date.now() - lastActivityTime > idleTimeout) {
+        exitReason = hasReceivedFollowUp ? "idle_timeout" : "no_followup";
+        log.info({ idleMs: Date.now() - lastActivityTime, hasReceivedFollowUp }, "follow-up idle timeout reached");
         break;
       }
 
@@ -249,10 +326,22 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
         break;
       }
 
+      // Periodically check if run was cancelled externally
+      pollCount++;
+      if (pollCount % STATUS_CHECK_INTERVAL === 0) {
+        const status = await emitter.pollRunStatus();
+        if (status === "cancelled" || status === "failed") {
+          exitReason = "cancelled_externally";
+          log.info({ status }, "run cancelled externally, exiting follow-up loop");
+          break;
+        }
+      }
+
       // Poll for user messages
       const messages = await emitter.pollUserMessages(lastEventId);
 
       if (messages.length > 0) {
+        hasReceivedFollowUp = true;
         lastActivityTime = Date.now();
         const latestId = Math.max(...messages.map((m) => m.id));
         lastEventId = latestId;
@@ -286,7 +375,9 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
         unsubscribe = agent.subscribe(followUpBridge.handler);
 
         try {
-          await agent.followUp(combinedText);
+          // followUp() only enqueues the message — continue() triggers the LLM round
+          agent.followUp(combinedText);
+          await withRetry(() => agent.continue());
           await agent.waitForIdle();
 
           // Snapshot session after follow-up
@@ -311,11 +402,17 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
 
     // ── Post-run: commit + push + diff (implement/bugfix only) ──
     if (payload.mode === "plan") {
-      // 12. Plan mode: emit awaiting_approval for human-in-the-loop
+      // 12. Plan mode: return needsApproval for Trigger.dev wait.forToken()
       await emitter.emitStatus(
         "awaiting_approval",
         "Plan complete — review the created tasks and approve to begin implementation."
       );
+      return {
+        needsApproval: true,
+        approvalMode: "plan",
+        approvalMessage: "Plan complete — review the created tasks and approve to begin implementation.",
+        workspace,
+      };
     } else if (payload.mode === "implement" || payload.mode === "bugfix") {
       // 13. Refresh token if using GitHub App and token is near expiry (< 10 min left)
       if (isGitHubAppConfigured() && tokenExpiresAt) {
@@ -349,14 +446,31 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
         log.warn({ err }, "failed to start dev server (non-fatal)");
       }
 
-      // 15. Emit awaiting_approval — user must approve before PR is created
+      // 15. Return needsApproval for Trigger.dev wait.forToken()
       const approvalMsg = previewUrl
         ? `Changes committed and pushed. Preview: ${previewUrl}. Approve to create PR.`
         : "Changes committed and pushed. Approve to create PR.";
       await emitter.emitStatus("awaiting_approval", approvalMsg);
+      return {
+        needsApproval: true,
+        approvalMode: "code",
+        approvalMessage: approvalMsg,
+        workspace,
+        prContext,
+        previewUrl,
+      };
     } else {
-      // review mode: just complete
+      // review mode: just complete — stop sandbox (no approval needed)
       await emitter.emitStatus("completed", "Agent run completed.");
+      if (workspace) {
+        try {
+          log.info({ sandboxId: workspace.sandbox.id }, "stopping sandbox after review run");
+          await workspace.stop();
+        } catch (err) {
+          log.warn({ err }, "failed to stop sandbox after review (non-fatal)");
+        }
+      }
+      return { needsApproval: false };
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -364,6 +478,18 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<void> {
     log.error({ err }, "agent run failed");
     await emitter.emitError(message, stack);
     await emitter.emitStatus("failed", message);
+
+    // Stop sandbox on failure to free resources
+    if (workspace) {
+      try {
+        log.info({ sandboxId: workspace.sandbox.id }, "stopping sandbox after failed run");
+        await workspace.stop();
+      } catch (stopErr) {
+        log.warn({ stopErr }, "failed to stop sandbox after error (non-fatal)");
+      }
+    }
+
+    return { needsApproval: false };
   }
 }
 

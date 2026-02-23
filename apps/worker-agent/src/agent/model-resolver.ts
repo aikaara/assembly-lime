@@ -2,8 +2,8 @@ import { getModel, type Model } from "@assembly-lime/pi-ai";
 import type { AgentProviderId } from "@assembly-lime/shared";
 
 const MODEL_MAP: Record<AgentProviderId, { provider: string; modelId: string }> = {
-  claude: { provider: "amazon-bedrock", modelId: "us.anthropic.claude-sonnet-4-5-20250929-v1:0" },
-  codex: { provider: "openai", modelId: "gpt-4o" },
+  claude: { provider: "amazon-bedrock", modelId: "us.anthropic.claude-opus-4-6-v1" },
+  codex: { provider: "openai", modelId: "gpt-5.2-codex" },
 };
 
 export function resolveModel(providerId: AgentProviderId): Model<any> {

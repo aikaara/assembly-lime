@@ -22,6 +22,8 @@ export class DaytonaWorkspace {
     provider: string;
     mode: string;
     repoName: string;
+    volumeName?: string;
+    envVars?: Record<string, string>;
   }): Promise<DaytonaWorkspace> {
     const daytona = new Daytona();
     const labels: Record<string, string> = {
@@ -30,14 +32,70 @@ export class DaytonaWorkspace {
       "assembly-lime/mode": opts.mode,
     };
 
+    let volumes: Array<{ volumeId: string; mountPath: string }> | undefined;
+    if (opts.volumeName) {
+      try {
+        const volume = await daytona.volume.get(opts.volumeName, true);
+        volumes = [{ volumeId: volume.id, mountPath: "/data" }];
+      } catch {
+        // Volume support is optional — fall through if unavailable
+      }
+    }
+
     const sandbox = await daytona.create({
       public: false,
       labels,
       autoStopInterval: 60,
+      ...(opts.envVars ? { envVars: opts.envVars } : {}),
+      ...(volumes ? { volumes } : {}),
     });
 
-    const repoDir = opts.repoName || "repo";
+    // Resolve absolute path within sandbox so tools don't use local CWD
+    const workDir = await sandbox.getWorkDir() || "/home/daytona";
+    const repoDir = `${workDir.replace(/\/+$/, "")}/${opts.repoName || "repo"}`;
     return new DaytonaWorkspace(sandbox, repoDir);
+  }
+
+  // ── Sandbox lifecycle ──────────────────────────────────────────────
+
+  /** Stop sandbox to free CPU/memory (keeps disk). */
+  async stop(): Promise<void> {
+    await this.sandbox.stop();
+  }
+
+  /** Start a stopped sandbox. */
+  async start(timeout?: number): Promise<void> {
+    await this.sandbox.start(timeout);
+  }
+
+  /** Prevent auto-stop during active work. */
+  async keepAlive(): Promise<void> {
+    await this.sandbox.refreshActivity();
+  }
+
+  /** Delete sandbox permanently (frees all resources). */
+  async delete(): Promise<void> {
+    const daytona = new Daytona();
+    await daytona.delete(this.sandbox);
+  }
+
+  /** Reconnect to an existing sandbox by ID. */
+  static async reconnect(opts: {
+    sandboxId: string;
+    repoDir: string;
+    authToken?: string;
+  }): Promise<DaytonaWorkspace> {
+    const daytona = new Daytona();
+    const sandbox = await daytona.get(opts.sandboxId);
+
+    // Start if stopped
+    if ((sandbox as any).state === "stopped") {
+      await sandbox.start();
+    }
+
+    const authUser = opts.authToken ? "x-access-token" : undefined;
+    const authPass = opts.authToken || undefined;
+    return new DaytonaWorkspace(sandbox, opts.repoDir, authUser, authPass);
   }
 
   /**
