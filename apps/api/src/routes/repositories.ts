@@ -1,5 +1,5 @@
 import { Elysia, t } from "elysia";
-import { eq, and } from "drizzle-orm";
+import { eq, and, ilike, or, sql, inArray } from "drizzle-orm";
 import { randomBytes } from "crypto";
 import type { Db } from "@assembly-lime/shared/db";
 import { repositories, connectors, webhooks } from "@assembly-lime/shared/db/schema";
@@ -19,29 +19,102 @@ const API_URL = process.env.API_URL ?? "http://localhost:3434";
 export function repositoryRoutes(db: Db) {
   return new Elysia({ prefix: "/repositories" })
     .use(requireAuth)
-    .get("/", async ({ auth }) => {
-      const rows = await db
-        .select()
-        .from(repositories)
-        .where(eq(repositories.tenantId, auth!.tenantId));
-      return rows.map((r) => ({
-        id: String(r.id),
-        connectorId: String(r.connectorId),
-        provider: r.provider,
-        externalRepoId: r.externalRepoId ? String(r.externalRepoId) : null,
-        owner: r.owner,
-        name: r.name,
-        fullName: r.fullName,
-        cloneUrl: r.cloneUrl,
-        defaultBranch: r.defaultBranch,
-        isEnabled: r.isEnabled,
-        forkOwner: r.forkOwner,
-        forkFullName: r.forkFullName,
-        forkCloneUrl: r.forkCloneUrl,
-        forkCreatedAt: r.forkCreatedAt?.toISOString() ?? null,
-        createdAt: r.createdAt.toISOString(),
-      }));
-    })
+    .get(
+      "/",
+      async ({ auth, query }) => {
+        const page = Math.max(1, Number(query.page) || 1);
+        const limit = Math.min(100, Math.max(1, Number(query.limit) || 30));
+        const offset = (page - 1) * limit;
+        const search = query.search?.trim();
+
+        const tenantFilter = eq(repositories.tenantId, auth!.tenantId);
+        const where = search
+          ? and(
+              tenantFilter,
+              or(
+                ilike(repositories.fullName, `%${search}%`),
+                ilike(repositories.owner, `%${search}%`),
+                ilike(repositories.name, `%${search}%`),
+              ),
+            )
+          : tenantFilter;
+
+        const [rows, countResult] = await Promise.all([
+          db
+            .select()
+            .from(repositories)
+            .where(where!)
+            .limit(limit)
+            .offset(offset),
+          db
+            .select({ count: sql<number>`count(*)::int` })
+            .from(repositories)
+            .where(where!),
+        ]);
+
+        const total = countResult[0]?.count ?? 0;
+
+        // Batch-load webhook status for the returned repos
+        const repoFullNames = rows.map((r) => `${r.owner}/${r.name}`);
+        const activeWebhooks =
+          repoFullNames.length > 0
+            ? await db
+                .select({
+                  targetPath: webhooks.targetPath,
+                  id: webhooks.id,
+                  eventsJson: webhooks.eventsJson,
+                })
+                .from(webhooks)
+                .where(
+                  and(
+                    eq(webhooks.tenantId, auth!.tenantId),
+                    eq(webhooks.status, 1),
+                    inArray(webhooks.targetPath, repoFullNames),
+                  ),
+                )
+            : [];
+
+        const webhookByRepo = new Map<string, { id: string; events: unknown }>();
+        for (const wh of activeWebhooks) {
+          webhookByRepo.set(wh.targetPath, {
+            id: String(wh.id),
+            events: wh.eventsJson,
+          });
+        }
+
+        return {
+          data: rows.map((r) => ({
+            id: String(r.id),
+            connectorId: String(r.connectorId),
+            provider: r.provider,
+            externalRepoId: r.externalRepoId ? String(r.externalRepoId) : null,
+            owner: r.owner,
+            name: r.name,
+            fullName: r.fullName,
+            cloneUrl: r.cloneUrl,
+            defaultBranch: r.defaultBranch,
+            isEnabled: r.isEnabled,
+            forkOwner: r.forkOwner,
+            forkFullName: r.forkFullName,
+            forkCloneUrl: r.forkCloneUrl,
+            forkCreatedAt: r.forkCreatedAt?.toISOString() ?? null,
+            createdAt: r.createdAt.toISOString(),
+            webhook: webhookByRepo.get(r.fullName) ?? null,
+          })),
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
+        };
+      },
+      {
+        query: t.Object({
+          page: t.Optional(t.String()),
+          limit: t.Optional(t.String()),
+          search: t.Optional(t.String()),
+        }),
+      },
+    )
     .get(
       "/:id",
       async ({ auth, params }) => {

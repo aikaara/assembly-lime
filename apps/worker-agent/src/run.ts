@@ -223,7 +223,11 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<RunResu
       suppressTerminalStatus: true,
       checkpointInterval: 10,
       onMaxTurns: () => {
-        agent.steer("You have used the maximum number of turns. Wrap up: commit any pending changes, summarize what you've done, and stop.");
+        agent.steer({
+          role: "user",
+          content: [{ type: "text", text: "You have used the maximum number of turns. Wrap up: commit any pending changes, summarize what you've done, and stop." }],
+          timestamp: Date.now(),
+        });
       },
       onCheckpoint: (turnNumber) => {
         // Snapshot session every 10 turns
@@ -236,7 +240,11 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<RunResu
           const current = usage.getCurrent();
           const elapsedSec = current?.attempt?.durationMs ? current.attempt.durationMs / 1000 : 0;
           if (elapsedSec > timeBudgetSec * 0.9) {
-            agent.steer("You are approaching the time budget. Wrap up current work.");
+            agent.steer({
+              role: "user",
+              content: [{ type: "text", text: "You are approaching the time budget. Wrap up current work." }],
+              timestamp: Date.now(),
+            });
             log.warn({ elapsedSec, timeBudgetSec }, "approaching time budget — steering agent to wrap up");
           }
         } catch { /* usage API may not be available outside Trigger.dev runtime */ }
@@ -268,7 +276,11 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<RunResu
           if (msgs.length > 0) {
             steeringLastEventId = Math.max(...msgs.map((m) => m.id));
             const text = msgs.map((m) => m.text).join("\n\n");
-            agent.steer(text);
+            agent.steer({
+              role: "user",
+              content: [{ type: "text", text }],
+              timestamp: Date.now(),
+            });
             log.info({ messageCount: msgs.length }, "mid-prompt steering injected");
           }
         } catch { /* non-fatal */ }
@@ -375,8 +387,12 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<RunResu
         unsubscribe = agent.subscribe(followUpBridge.handler);
 
         try {
-          // followUp() only enqueues the message — continue() triggers the LLM round
-          agent.followUp(combinedText);
+          // followUp() only enqueues — needs a proper UserMessage, not a string
+          agent.followUp({
+            role: "user",
+            content: [{ type: "text", text: combinedText }],
+            timestamp: Date.now(),
+          });
           await withRetry(() => agent.continue());
           await agent.waitForIdle();
 
