@@ -16,6 +16,7 @@ export function AgentRunsPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const projectId =
     auth.status === "authenticated" ? auth.currentProjectId : null;
@@ -25,6 +26,7 @@ export function AgentRunsPage() {
   useEffect(() => {
     if (!projectId) return;
     setLoading(true);
+    setError(null);
     const offset = (page - 1) * PAGE_SIZE;
     api
       .get<{ data: AgentRunDetailResponse[]; total: number }>(
@@ -34,12 +36,26 @@ export function AgentRunsPage() {
         setRuns(res.data);
         setTotal(res.total);
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error("Failed to fetch runs:", err);
+        setError(String(err));
         setRuns([]);
         setTotal(0);
       })
       .finally(() => setLoading(false));
   }, [projectId, page]);
+
+  if (!loading && error) {
+    return (
+      <div className="p-6">
+        <EmptyState
+          icon={Play}
+          title="Failed to load runs"
+          description={error}
+        />
+      </div>
+    );
+  }
 
   if (!loading && runs.length === 0) {
     return (
@@ -47,7 +63,7 @@ export function AgentRunsPage() {
         <EmptyState
           icon={Play}
           title="No agent runs yet"
-          description="Start a run from the Command Center and it will appear here."
+          description={`Project: ${projectId ?? "none"}. Start a run from the Command Center and it will appear here.`}
         />
       </div>
     );
