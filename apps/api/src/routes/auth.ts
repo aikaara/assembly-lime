@@ -18,12 +18,35 @@ import { childLogger } from "../lib/logger";
 
 const log = childLogger({ module: "auth-routes" });
 
+// ── Server-side OAuth state store (avoids cookie issues with Vercel rewrites) ──
+
+const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const pendingStates = new Map<string, number>(); // state → expiry timestamp
+
 function generateState(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
   return Array.from(bytes)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+}
+
+function storeState(state: string): void {
+  pendingStates.set(state, Date.now() + STATE_TTL_MS);
+  // Prune expired entries periodically
+  if (pendingStates.size > 100) {
+    const now = Date.now();
+    for (const [k, exp] of pendingStates) {
+      if (exp < now) pendingStates.delete(k);
+    }
+  }
+}
+
+function consumeState(state: string): boolean {
+  const expiry = pendingStates.get(state);
+  if (!expiry) return false;
+  pendingStates.delete(state);
+  return Date.now() < expiry;
 }
 
 function parseCookie(cookieHeader: string | null, name: string): string | null {
@@ -49,9 +72,9 @@ export function authRoutes(db: Db) {
   return new Elysia({ prefix: "/auth" })
     .get("/github", ({ set }) => {
       const state = generateState();
+      storeState(state);
       log.info("initiating GitHub OAuth flow");
-      const stateCookie = `al_oauth_state=${state}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600`;
-      redirect(set, getGitHubAuthUrl(state), { "Set-Cookie": stateCookie });
+      redirect(set, getGitHubAuthUrl(state));
     })
 
     .get("/github/callback", async ({ request, set }) => {
@@ -68,11 +91,9 @@ export function authRoutes(db: Db) {
           return;
         }
 
-        // Verify state
-        const cookieHeader = request.headers.get("cookie");
-        const savedState = parseCookie(cookieHeader, "al_oauth_state");
-        if (!state || !savedState || state !== savedState) {
-          log.warn("OAuth state mismatch");
+        // Verify state against server-side store
+        if (!state || !consumeState(state)) {
+          log.warn({ state: state ?? "(missing)" }, "OAuth state mismatch or expired");
           redirect(set, `${FRONTEND_URL}/login?error=invalid_state`);
           return;
         }
@@ -100,14 +121,11 @@ export function authRoutes(db: Db) {
         // Create session
         const sessionToken = await createSession({ userId, tenantId });
 
-        // Return raw Response to properly set multiple Set-Cookie headers
-        const clearState =
-          "al_oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0";
+        // Redirect to frontend with session cookie
         return new Response(null, {
           status: 302,
           headers: [
             ["Location", FRONTEND_URL],
-            ["Set-Cookie", clearState],
             ["Set-Cookie", buildCookieHeader(sessionToken)],
           ],
         });
