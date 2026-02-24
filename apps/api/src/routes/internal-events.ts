@@ -1,8 +1,8 @@
 import { Elysia, t } from "elysia";
-import { eq, and, gt } from "drizzle-orm";
+import { eq, and, gt, sql } from "drizzle-orm";
 import { timingSafeEqual } from "crypto";
 import type { Db } from "@assembly-lime/shared/db";
-import { agentEvents, agentRuns, llmCallDumps, agentRunRepos, codeDiffs, tickets } from "@assembly-lime/shared/db/schema";
+import { agentEvents, agentRuns, llmCallDumps, agentRunRepos, codeDiffs, tickets, sandboxCache } from "@assembly-lime/shared/db/schema";
 import type { AgentEvent } from "@assembly-lime/shared";
 import { broadcastToWs } from "./ws";
 import { createTicket } from "../services/project.service";
@@ -72,7 +72,7 @@ export function internalEventRoutes(db: Db) {
             if (event.message) {
               updates.outputSummary = event.message;
             }
-          } else if (event.status === "awaiting_approval" || event.status === "awaiting_followup") {
+          } else if (event.status === "awaiting_approval" || event.status === "awaiting_followup" || event.status === "awaiting_env_vars") {
             // Don't set endedAt — run is still alive
             if (event.message) {
               updates.outputSummary = event.message;
@@ -572,6 +572,255 @@ export function internalEventRoutes(db: Db) {
       {
         params: t.Object({ runId: t.String() }),
         query: t.Object({ after: t.Optional(t.String()) }),
+      }
+    )
+    // ── Sandbox cache: query available cached sandbox for a repo ──
+    .get(
+      "/sandbox-cache/:repositoryId",
+      async ({ request, params, query, set }) => {
+        const key = request.headers.get("x-internal-key");
+        if (!key || !verifyInternalKey(key)) {
+          set.status = 401;
+          return { error: "unauthorized" };
+        }
+
+        const repositoryId = Number(params.repositoryId);
+        const tenantId = Number(query.tenantId ?? "0");
+        if (Number.isNaN(repositoryId) || Number.isNaN(tenantId) || !tenantId) {
+          set.status = 400;
+          return { error: "invalid repositoryId or tenantId" };
+        }
+
+        // Atomically claim the first available entry
+        const rows = await db
+          .update(sandboxCache)
+          .set({ status: "in_use", lastUsedAt: new Date() })
+          .where(
+            and(
+              eq(sandboxCache.tenantId, tenantId),
+              eq(sandboxCache.repositoryId, repositoryId),
+              eq(sandboxCache.status, "available"),
+            )
+          )
+          .returning();
+
+        const entry = rows[0] ?? null;
+        if (entry) {
+          log.info({ cacheId: entry.id, sandboxId: entry.sandboxId, repositoryId }, "sandbox cache hit — claimed");
+        }
+
+        return {
+          entry: entry
+            ? { id: entry.id, sandboxId: entry.sandboxId, repoDir: entry.repoDir, defaultBranch: entry.defaultBranch }
+            : null,
+        };
+      },
+      {
+        params: t.Object({ repositoryId: t.String() }),
+        query: t.Object({ tenantId: t.Optional(t.String()) }),
+      }
+    )
+    // ── Sandbox cache: register/upsert a sandbox for reuse ──
+    .post(
+      "/sandbox-cache",
+      async ({ request, body, set }) => {
+        const key = request.headers.get("x-internal-key");
+        if (!key || !verifyInternalKey(key)) {
+          set.status = 401;
+          return { error: "unauthorized" };
+        }
+
+        const data = body as {
+          tenantId: number;
+          repositoryId: number;
+          sandboxId: string;
+          repoDir: string;
+          defaultBranch: string;
+        };
+
+        // Upsert by sandboxId
+        const existing = await db
+          .select({ id: sandboxCache.id })
+          .from(sandboxCache)
+          .where(eq(sandboxCache.sandboxId, data.sandboxId));
+
+        if (existing.length > 0) {
+          await db
+            .update(sandboxCache)
+            .set({
+              status: "available",
+              lastUsedAt: new Date(),
+              repoDir: data.repoDir,
+              defaultBranch: data.defaultBranch,
+            })
+            .where(eq(sandboxCache.sandboxId, data.sandboxId));
+          log.info({ sandboxId: data.sandboxId }, "sandbox cache updated");
+        } else {
+          await db.insert(sandboxCache).values({
+            tenantId: data.tenantId,
+            repositoryId: data.repositoryId,
+            sandboxId: data.sandboxId,
+            repoDir: data.repoDir,
+            defaultBranch: data.defaultBranch,
+            status: "available",
+          });
+          log.info({ sandboxId: data.sandboxId, repositoryId: data.repositoryId }, "sandbox cache entry created");
+        }
+
+        return { ok: true };
+      },
+      {
+        body: t.Object({
+          tenantId: t.Number(),
+          repositoryId: t.Number(),
+          sandboxId: t.String(),
+          repoDir: t.String(),
+          defaultBranch: t.String(),
+        }),
+      }
+    )
+    // ── Sandbox cache: expire/delete a cache entry ──
+    .delete(
+      "/sandbox-cache/:id",
+      async ({ request, params, set }) => {
+        const key = request.headers.get("x-internal-key");
+        if (!key || !verifyInternalKey(key)) {
+          set.status = 401;
+          return { error: "unauthorized" };
+        }
+
+        const cacheId = Number(params.id);
+        if (Number.isNaN(cacheId)) {
+          set.status = 400;
+          return { error: "invalid id" };
+        }
+
+        await db
+          .update(sandboxCache)
+          .set({ status: "expired" })
+          .where(eq(sandboxCache.id, cacheId));
+
+        log.info({ cacheId }, "sandbox cache entry expired");
+        return { ok: true };
+      },
+      {
+        params: t.Object({ id: t.String() }),
+      }
+    )
+    // ── Env var submission: store user-submitted env vars on run ──
+    .post(
+      "/agent-env-vars/:runId",
+      async ({ request, params, body, set }) => {
+        const key = request.headers.get("x-internal-key");
+        if (!key || !verifyInternalKey(key)) {
+          set.status = 401;
+          return { error: "unauthorized" };
+        }
+
+        const runId = Number(params.runId);
+        if (Number.isNaN(runId)) {
+          set.status = 400;
+          return { error: "invalid runId" };
+        }
+
+        const data = body as { envVars: Record<string, string>; repositoryId?: number };
+
+        const [run] = await db
+          .select({ id: agentRuns.id, tenantId: agentRuns.tenantId, artifactsJson: agentRuns.artifactsJson })
+          .from(agentRuns)
+          .where(eq(agentRuns.id, runId));
+        if (!run) {
+          set.status = 404;
+          return { error: "run not found" };
+        }
+
+        // Store submitted env vars in artifactsJson
+        const artifacts = (run.artifactsJson as Record<string, unknown>) ?? {};
+        artifacts.submitted_env_vars = data.envVars;
+        await db
+          .update(agentRuns)
+          .set({ artifactsJson: artifacts })
+          .where(eq(agentRuns.id, runId));
+
+        // Persist to env_var_sets/env_vars for future runs (if repositoryId provided)
+        if (data.repositoryId) {
+          try {
+            const { createEnvVarSet, setEnvVar } = await import("../services/env-var.service");
+            // Find or create env var set scoped to this repository
+            const { envVarSets: evSets } = await import("@assembly-lime/shared/db/schema");
+            const existing = await db
+              .select()
+              .from(evSets)
+              .where(
+                and(
+                  eq(evSets.tenantId, run.tenantId),
+                  eq(evSets.scopeType, "repository"),
+                  eq(evSets.scopeId, data.repositoryId),
+                )
+              );
+
+            let setId: number;
+            if (existing.length > 0) {
+              setId = existing[0]!.id;
+            } else {
+              const newSet = await createEnvVarSet(db, run.tenantId, {
+                scopeType: "repository",
+                scopeId: data.repositoryId,
+                name: `auto-${data.repositoryId}`,
+              });
+              setId = newSet.id;
+            }
+
+            for (const [k, v] of Object.entries(data.envVars)) {
+              if (v) {
+                await setEnvVar(db, run.tenantId, setId, k, v, true);
+              }
+            }
+            log.info({ runId, repositoryId: data.repositoryId, keyCount: Object.keys(data.envVars).length }, "env vars persisted for future runs");
+          } catch (err) {
+            log.warn({ err, runId }, "failed to persist env vars to env_var_sets (non-fatal)");
+          }
+        }
+
+        log.info({ runId, keyCount: Object.keys(data.envVars).length }, "env vars submitted for agent run");
+        return { ok: true };
+      },
+      {
+        params: t.Object({ runId: t.String() }),
+      }
+    )
+    // ── Env var polling: worker polls for submitted env vars ──
+    .get(
+      "/agent-env-vars/:runId",
+      async ({ request, params, set }) => {
+        const key = request.headers.get("x-internal-key");
+        if (!key || !verifyInternalKey(key)) {
+          set.status = 401;
+          return { error: "unauthorized" };
+        }
+
+        const runId = Number(params.runId);
+        if (Number.isNaN(runId)) {
+          set.status = 400;
+          return { error: "invalid runId" };
+        }
+
+        const [run] = await db
+          .select({ artifactsJson: agentRuns.artifactsJson })
+          .from(agentRuns)
+          .where(eq(agentRuns.id, runId));
+        if (!run) {
+          set.status = 404;
+          return { error: "run not found" };
+        }
+
+        const artifacts = (run.artifactsJson as Record<string, unknown>) ?? {};
+        const envVars = (artifacts.submitted_env_vars as Record<string, string>) ?? null;
+
+        return { envVars };
+      },
+      {
+        params: t.Object({ runId: t.String() }),
       }
     );
 }

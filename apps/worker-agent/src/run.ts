@@ -91,15 +91,55 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<RunResu
       await emitter.emitLog("Warning: no auth token available for this repository. If the repo is private, the clone will fail.");
     }
 
-    // 3. Create Daytona sandbox (no clone yet)
-    log.info({ repoName: `${payload.repo.owner}/${payload.repo.name}`, hasAuthToken: !!authToken }, "creating Daytona sandbox");
-    workspace = await DaytonaWorkspace.createSandbox({
-      runId: payload.runId,
-      provider: payload.provider,
-      mode: payload.mode,
-      repoName: payload.repo.name,
-      envVars: payload.sandbox?.envVars,
-    });
+    // 3. Create or reuse Daytona sandbox
+    let sandboxCacheId: number | undefined;
+    let usedCache = false;
+
+    // Try to reuse a cached (stopped) sandbox for this repo
+    const cachedSandbox = await emitter.querySandboxCache(payload.tenantId, payload.repo.repositoryId);
+    if (cachedSandbox) {
+      try {
+        log.info({ cacheId: cachedSandbox.id, sandboxId: cachedSandbox.sandboxId }, "reusing cached sandbox");
+        await emitter.emitLog("Reusing cached sandbox...");
+        workspace = await DaytonaWorkspace.reconnect({
+          sandboxId: cachedSandbox.sandboxId,
+          repoDir: cachedSandbox.repoDir,
+          authToken,
+        });
+        await workspace.refreshRepo({
+          defaultBranch: cachedSandbox.defaultBranch,
+          authToken,
+        });
+        sandboxCacheId = cachedSandbox.id;
+        usedCache = true;
+        log.info({ sandboxId: cachedSandbox.sandboxId }, "cached sandbox reconnected and refreshed");
+      } catch (err) {
+        log.warn({ err, cacheId: cachedSandbox.id }, "failed to reuse cached sandbox, falling back to fresh");
+        await emitter.expireSandboxCache(cachedSandbox.id);
+        workspace = undefined;
+      }
+    }
+
+    // Fresh sandbox if no cache hit
+    if (!workspace) {
+      log.info({ repoName: `${payload.repo.owner}/${payload.repo.name}`, hasAuthToken: !!authToken }, "creating Daytona sandbox");
+      workspace = await DaytonaWorkspace.createSandbox({
+        runId: payload.runId,
+        provider: payload.provider,
+        mode: payload.mode,
+        repoName: payload.repo.name,
+        envVars: payload.sandbox?.envVars,
+      });
+
+      // Clone repo into sandbox with auth token
+      await workspace.cloneRepo({
+        cloneUrl: payload.repo.cloneUrl,
+        defaultBranch: payload.repo.defaultBranch,
+        ref: payload.repo.ref,
+        authToken,
+      });
+      log.info({ repoName: `${payload.repo.owner}/${payload.repo.name}`, hasAuth: !!authToken }, "repo cloned into sandbox");
+    }
 
     // Emit sandbox URL immediately + persist sandbox ID for reconnection
     const sandboxUrl = getDaytonaSandboxUrl(workspace.sandbox.id);
@@ -111,24 +151,77 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<RunResu
     });
     await emitter.emitArtifact("sandbox", sandboxUrl, "text/html");
     await emitter.emitSandboxInfo(workspace.sandbox.id, workspace.repoDir);
-    log.info({ sandboxId: workspace.sandbox.id }, "Daytona sandbox created");
-
-    // Clone repo into sandbox with auth token
-    await workspace.cloneRepo({
-      cloneUrl: payload.repo.cloneUrl,
-      defaultBranch: payload.repo.defaultBranch,
-      ref: payload.repo.ref,
-      authToken,
-    });
-    log.info({ repoName: `${payload.repo.owner}/${payload.repo.name}`, hasAuth: !!authToken }, "repo cloned into sandbox");
+    log.info({ sandboxId: workspace.sandbox.id, usedCache }, "Daytona sandbox ready");
 
     // Create working branch
     const branchName = `al/${payload.mode}/${payload.runId}`;
     await workspace.createBranch(branchName);
     log.info({ branch: branchName }, "working branch created");
 
-    // Inject env vars if provided
-    const envVars = payload.sandbox?.envVars;
+    // ── Env var detection + collection ──
+    let envVars = payload.sandbox?.envVars;
+    if (!envVars || Object.keys(envVars).length === 0) {
+      // Scan for .env.example / .env.sample / .env.template in sandbox
+      const envTemplateFiles = [".env.example", ".env.sample", ".env.template"];
+      let detectedKeys: string[] = [];
+      let detectedEnvFile = "";
+
+      for (const envFile of envTemplateFiles) {
+        try {
+          const { stdout } = await workspace.exec(`cat ${workspace.repoDir}/${envFile} 2>/dev/null || true`);
+          if (stdout.trim()) {
+            const keys = stdout
+              .split("\n")
+              .map((line) => line.trim())
+              .filter((line) => line && !line.startsWith("#"))
+              .map((line) => line.split("=")[0]!.trim())
+              .filter((key) => /^[A-Z_][A-Z0-9_]*$/.test(key));
+            if (keys.length > 0) {
+              detectedKeys = keys;
+              detectedEnvFile = envFile;
+              break;
+            }
+          }
+        } catch {
+          // file doesn't exist — continue
+        }
+      }
+
+      if (detectedKeys.length > 0) {
+        log.info({ envFile: detectedEnvFile, keyCount: detectedKeys.length }, "detected env var keys — asking user");
+        await emitter.emitEnvVarsRequired(detectedKeys, detectedEnvFile);
+        await emitter.emitStatus("awaiting_env_vars", `Environment variables needed from ${detectedEnvFile}`);
+
+        // Poll for user-submitted env vars (max 30 min)
+        const ENV_POLL_INTERVAL_MS = 2_000;
+        const ENV_POLL_TIMEOUT_MS = 30 * 60 * 1_000;
+        const envPollStart = Date.now();
+        let submittedVars: Record<string, string> | null = null;
+
+        while (Date.now() - envPollStart < ENV_POLL_TIMEOUT_MS) {
+          // Check for cancellation
+          const status = await emitter.pollRunStatus();
+          if (status === "cancelled" || status === "failed") {
+            throw new Error("Run cancelled while waiting for env vars");
+          }
+
+          submittedVars = await emitter.pollEnvVars();
+          if (submittedVars) break;
+
+          await new Promise((r) => setTimeout(r, ENV_POLL_INTERVAL_MS));
+        }
+
+        if (!submittedVars) {
+          throw new Error("Timed out waiting for user to submit environment variables");
+        }
+
+        envVars = submittedVars;
+        await emitter.emitStatus("running", "Environment variables received — resuming...");
+        log.info({ keyCount: Object.keys(submittedVars).length }, "env vars received from user");
+      }
+    }
+
+    // Inject env vars if available
     if (envVars && Object.keys(envVars).length > 0) {
       await workspace.injectEnvVars(envVars);
     }
@@ -476,14 +569,23 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<RunResu
         previewUrl,
       };
     } else {
-      // review mode: just complete — stop sandbox (no approval needed)
+      // review mode: just complete — stop + cache sandbox (no approval needed)
       await emitter.emitStatus("completed", "Agent run completed.");
       if (workspace) {
         try {
           log.info({ sandboxId: workspace.sandbox.id }, "stopping sandbox after review run");
           await workspace.stop();
+          // Register sandbox for reuse
+          await emitter.registerSandboxCache({
+            tenantId: payload.tenantId,
+            repositoryId: payload.repo.repositoryId,
+            sandboxId: workspace.sandbox.id,
+            repoDir: workspace.repoDir,
+            defaultBranch: payload.repo.defaultBranch,
+          });
+          log.info({ sandboxId: workspace.sandbox.id }, "sandbox registered in cache for reuse");
         } catch (err) {
-          log.warn({ err }, "failed to stop sandbox after review (non-fatal)");
+          log.warn({ err }, "failed to stop/cache sandbox after review (non-fatal)");
         }
       }
       return { needsApproval: false };
@@ -495,13 +597,21 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<RunResu
     await emitter.emitError(message, stack);
     await emitter.emitStatus("failed", message);
 
-    // Stop sandbox on failure to free resources
-    if (workspace) {
+    // Stop sandbox on failure — still cache it for reuse
+    if (workspace && payload.repo) {
       try {
         log.info({ sandboxId: workspace.sandbox.id }, "stopping sandbox after failed run");
         await workspace.stop();
+        await emitter.registerSandboxCache({
+          tenantId: payload.tenantId,
+          repositoryId: payload.repo.repositoryId,
+          sandboxId: workspace.sandbox.id,
+          repoDir: workspace.repoDir,
+          defaultBranch: payload.repo.defaultBranch,
+        });
+        log.info({ sandboxId: workspace.sandbox.id }, "sandbox registered in cache after failure");
       } catch (stopErr) {
-        log.warn({ stopErr }, "failed to stop sandbox after error (non-fatal)");
+        log.warn({ stopErr }, "failed to stop/cache sandbox after error (non-fatal)");
       }
     }
 

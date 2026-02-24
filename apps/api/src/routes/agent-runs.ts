@@ -178,6 +178,66 @@ export function agentRunRoutes(db: Db) {
       }
     )
 
+    // ── Submit env vars for a run ──
+    .post(
+      "/:id/env-vars",
+      async ({ auth, params, body, set }) => {
+        const runId = Number(params.id);
+        if (isNaN(runId)) {
+          set.status = 400;
+          return { error: "invalid run id" };
+        }
+
+        const run = await getAgentRun(db, runId);
+        if (!run || run.tenantId !== auth!.tenantId) {
+          set.status = 404;
+          return { error: "run not found" };
+        }
+
+        if (run.status !== "awaiting_env_vars") {
+          set.status = 409;
+          return { error: `run status is "${run.status}", expected "awaiting_env_vars"` };
+        }
+
+        // Forward to internal endpoint
+        const internalKey = process.env.INTERNAL_AGENT_API_KEY ?? "";
+        const apiBaseUrl = (process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 3434}`).replace(/\/$/, "");
+        try {
+          const res = await fetch(`${apiBaseUrl}/internal/agent-env-vars/${runId}`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-internal-key": internalKey,
+            },
+            body: JSON.stringify({
+              envVars: body.envVars,
+              repositoryId: body.repositoryId,
+            }),
+          });
+          if (!res.ok) {
+            const text = await res.text();
+            log.warn({ runId, status: res.status, body: text }, "internal env-vars forward failed");
+            set.status = 500;
+            return { error: "failed to store env vars" };
+          }
+        } catch (err) {
+          log.error({ err, runId }, "failed to forward env vars to internal endpoint");
+          set.status = 500;
+          return { error: "failed to store env vars" };
+        }
+
+        log.info({ runId, keyCount: Object.keys(body.envVars).length }, "env vars submitted via public API");
+        return { ok: true };
+      },
+      {
+        params: t.Object({ id: t.String() }),
+        body: t.Object({
+          envVars: t.Record(t.String(), t.String()),
+          repositoryId: t.Optional(t.Number()),
+        }),
+      }
+    )
+
     // ── Reject a run ──
     .post(
       "/:id/reject",

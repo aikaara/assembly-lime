@@ -58,7 +58,7 @@ export class AgentEventEmitter {
   }
 
   async emitStatus(
-    status: "queued" | "running" | "completed" | "failed" | "cancelled" | "awaiting_approval" | "awaiting_followup" | "plan_approved",
+    status: "queued" | "running" | "completed" | "failed" | "cancelled" | "awaiting_approval" | "awaiting_followup" | "awaiting_env_vars" | "plan_approved",
     message?: string
   ): Promise<void> {
     await this.emit({ type: "status", status, message });
@@ -241,5 +241,76 @@ export class AgentEventEmitter {
       type: "tasks",
       tasks: this.taskList,
     });
+  }
+
+  // ── Sandbox cache ──
+
+  async querySandboxCache(
+    tenantId: number,
+    repositoryId: number,
+  ): Promise<{ id: number; sandboxId: string; repoDir: string; defaultBranch: string } | null> {
+    try {
+      const res = await fetch(
+        `${this.baseUrl}/internal/sandbox-cache/${repositoryId}?tenantId=${tenantId}`,
+        { headers: { "x-internal-key": INTERNAL_KEY } },
+      );
+      if (!res.ok) return null;
+      const data = (await res.json()) as { entry: { id: number; sandboxId: string; repoDir: string; defaultBranch: string } | null };
+      return data.entry ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  async registerSandboxCache(data: {
+    tenantId: number;
+    repositoryId: number;
+    sandboxId: string;
+    repoDir: string;
+    defaultBranch: string;
+  }): Promise<void> {
+    try {
+      await fetch(`${this.baseUrl}/internal/sandbox-cache`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-internal-key": INTERNAL_KEY,
+        },
+        body: JSON.stringify(data),
+      });
+    } catch (err) {
+      console.warn("[emitter] registerSandboxCache error:", err);
+    }
+  }
+
+  async expireSandboxCache(cacheId: number): Promise<void> {
+    try {
+      await fetch(`${this.baseUrl}/internal/sandbox-cache/${cacheId}`, {
+        method: "DELETE",
+        headers: { "x-internal-key": INTERNAL_KEY },
+      });
+    } catch (err) {
+      console.warn("[emitter] expireSandboxCache error:", err);
+    }
+  }
+
+  // ── Env var collection ──
+
+  async emitEnvVarsRequired(keys: string[], envFile: string): Promise<void> {
+    await this.emit({ type: "env_vars_required", keys, envFile });
+  }
+
+  async pollEnvVars(): Promise<Record<string, string> | null> {
+    try {
+      const res = await fetch(
+        `${this.baseUrl}/internal/agent-env-vars/${this.runId}`,
+        { headers: { "x-internal-key": INTERNAL_KEY } },
+      );
+      if (!res.ok) return null;
+      const data = (await res.json()) as { envVars: Record<string, string> | null };
+      return data.envVars ?? null;
+    } catch {
+      return null;
+    }
   }
 }

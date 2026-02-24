@@ -33,6 +33,7 @@ const LIVE_STATUSES: AgentRunStatus[] = [
   "running",
   "awaiting_followup",
   "awaiting_approval",
+  "awaiting_env_vars",
 ];
 
 export function CommandCenterPage() {
@@ -182,6 +183,15 @@ export function CommandCenterPage() {
     }
   }
 
+  async function handleSubmitEnvVars(vars: Record<string, string>) {
+    if (!activeRunId) return;
+    try {
+      await api.post(`/agent-runs/${activeRunId}/env-vars`, { envVars: vars });
+    } catch (err) {
+      console.error("Failed to submit env vars:", err);
+    }
+  }
+
   // ── Render ──
 
   const hasActiveRun = !!activeRunId && (!!run || loadingRun);
@@ -241,6 +251,7 @@ export function CommandCenterPage() {
         onSendMessage={handleSendMessage}
         onApprove={handleApprove}
         onReject={handleReject}
+        onSubmitEnvVars={handleSubmitEnvVars}
       />
     </div>
   );

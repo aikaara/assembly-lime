@@ -9,6 +9,7 @@ export type AgentRunStatus =
   | "cancelled"
   | "awaiting_approval"
   | "awaiting_followup"
+  | "awaiting_env_vars"
   | "plan_approved";
 
 export type PreviewDeploymentStatus =
@@ -136,7 +137,8 @@ export type AgentEvent =
         status: "pending" | "in_progress" | "completed";
       }>;
     }
-  | { type: "user_message"; text: string };
+  | { type: "user_message"; text: string }
+  | { type: "env_vars_required"; keys: string[]; envFile: string };
 
 // ── Agent Chains / Pipelines ──────────────────────────────────────
 

@@ -5,6 +5,7 @@ import { useEventGroups } from "../../hooks/useEventGroups";
 import { EventGroupCard } from "./EventGroupCard";
 import { TaskProgressWidget } from "./TaskProgressWidget";
 import { ApprovalBar } from "./ApprovalBar";
+import { EnvVarsInputBar } from "./EnvVarsInputBar";
 import { ArrowUp, ScrollText } from "lucide-react";
 import { EmptyState } from "../ui/EmptyState";
 
@@ -23,6 +24,7 @@ export function TranscriptPanel({
   onSendMessage,
   onApprove,
   onReject,
+  onSubmitEnvVars,
 }: {
   events: AgentEvent[];
   connectionState: ConnectionState;
@@ -32,6 +34,7 @@ export function TranscriptPanel({
   onSendMessage?: (text: string) => void;
   onApprove?: () => void;
   onReject?: () => void;
+  onSubmitEnvVars?: (vars: Record<string, string>) => void;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [inputText, setInputText] = useState("");
@@ -48,6 +51,16 @@ export function TranscriptPanel({
     for (let i = events.length - 1; i >= 0; i--) {
       if (events[i].type === "tasks") {
         return (events[i] as Extract<AgentEvent, { type: "tasks" }>).tasks;
+      }
+    }
+    return null;
+  })();
+
+  // Derive latest env_vars_required event
+  const latestEnvVarsRequired = (() => {
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i].type === "env_vars_required") {
+        return events[i] as Extract<AgentEvent, { type: "env_vars_required" }>;
       }
     }
     return null;
@@ -105,6 +118,16 @@ export function TranscriptPanel({
             {/* Floating task progress widget */}
             {latestTasks && latestTasks.length > 0 && (
               <TaskProgressWidget tasks={latestTasks} />
+            )}
+
+            {/* Env vars input bar */}
+            {runStatus === "awaiting_env_vars" && latestEnvVarsRequired && onSubmitEnvVars && (
+              <EnvVarsInputBar
+                keys={latestEnvVarsRequired.keys}
+                envFile={latestEnvVarsRequired.envFile}
+                onSubmit={onSubmitEnvVars}
+                onSkip={() => onSubmitEnvVars({})}
+              />
             )}
 
             {/* Approval bar */}

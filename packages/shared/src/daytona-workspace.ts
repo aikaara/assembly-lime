@@ -131,6 +131,48 @@ export class DaytonaWorkspace {
   }
 
   /**
+   * Refresh a previously cloned repo: fetch, checkout, reset, clean.
+   * Used when reusing a cached (stopped) sandbox.
+   */
+  async refreshRepo(opts: {
+    defaultBranch: string;
+    authToken?: string;
+  }): Promise<void> {
+    const branch = opts.defaultBranch;
+
+    // Update auth credentials if provided
+    if (opts.authToken) {
+      this.authUser = "x-access-token";
+      this.authPass = opts.authToken;
+    }
+
+    // Configure credential helper for fetch/push
+    if (this.authUser && this.authPass) {
+      await this.sandbox.process.executeCommand(
+        `git config credential.helper '!f() { echo "username=${this.authUser}"; echo "password=${this.authPass}"; }; f'`,
+        this.repoDir,
+      );
+    }
+
+    await this.sandbox.process.executeCommand(
+      `git fetch origin ${branch}`,
+      this.repoDir,
+    );
+    await this.sandbox.process.executeCommand(
+      `git checkout ${branch}`,
+      this.repoDir,
+    );
+    await this.sandbox.process.executeCommand(
+      `git reset --hard origin/${branch}`,
+      this.repoDir,
+    );
+    await this.sandbox.process.executeCommand(
+      `git clean -fdx`,
+      this.repoDir,
+    );
+  }
+
+  /**
    * Convenience: creates a Daytona sandbox, clones the repository, and returns a workspace instance.
    */
   static async create(opts: {
@@ -287,13 +329,17 @@ export class DaytonaWorkspace {
    * Detect start command, install deps, start dev server in a background
    * session, and return a signed preview URL.
    */
-  async startDevServer(sessionId: string): Promise<{
+  async startDevServer(sessionId: string, portOverride?: number): Promise<{
     previewUrl: string | null;
     port: number;
     portSource: string;
     startCommand: string;
   }> {
     const config = await this.detectStartConfig();
+
+    // Port override takes highest priority
+    const port = portOverride ?? config.port;
+    const portSource = portOverride ? "explicit override" : config.portSource;
 
     // Install dependencies
     if (config.installCommand) {
@@ -308,16 +354,34 @@ export class DaytonaWorkspace {
       0,
     );
 
-    // Wait a moment for the server to bind the port
-    await new Promise((r) => setTimeout(r, 2000));
+    // Poll for port to become available (up to 15 attempts, 1s each)
+    let previewUrl: string | null = null;
+    for (let attempt = 0; attempt < 15; attempt++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      try {
+        const { stdout } = await this.exec(`ss -tln | grep :${port}`);
+        if (stdout.includes(`:${port}`)) {
+          previewUrl = await this.getSignedPreviewUrl(port, 3600);
+          if (previewUrl) break;
+        }
+      } catch {
+        // ss may not be available — fall back to simple wait
+        if (attempt >= 2) {
+          previewUrl = await this.getSignedPreviewUrl(port, 3600);
+          if (previewUrl) break;
+        }
+      }
+    }
 
-    // Get preview URL
-    const previewUrl = await this.getSignedPreviewUrl(config.port, 3600);
+    // Final attempt if loop didn't get a URL
+    if (!previewUrl) {
+      previewUrl = await this.getSignedPreviewUrl(port, 3600);
+    }
 
     return {
       previewUrl,
-      port: config.port,
-      portSource: config.portSource,
+      port,
+      portSource,
       startCommand: config.startCommand,
     };
   }
@@ -336,13 +400,28 @@ export class DaytonaWorkspace {
     return (await this.readFile(path)) !== null;
   }
 
+  /** Port-related env var names in priority order. */
+  private static PORT_VAR_NAMES = [
+    "PORT",
+    "VITE_PORT",
+    "APP_PORT",
+    "SERVER_PORT",
+    "NEXT_PUBLIC_PORT",
+    "DEV_PORT",
+  ];
+
   /**
-   * Parse PORT from a dotenv-style file content.
-   * Matches `PORT=1234` or `PORT = 1234` (with optional quotes).
+   * Parse a port from a dotenv-style file content.
+   * Checks multiple var names in priority order:
+   * PORT, VITE_PORT, APP_PORT, SERVER_PORT, NEXT_PUBLIC_PORT, DEV_PORT.
    */
   private parsePortFromEnv(content: string): number | null {
-    const match = content.match(/^PORT\s*=\s*["']?(\d{2,5})["']?/m);
-    return match?.[1] ? parseInt(match[1], 10) : null;
+    for (const varName of DaytonaWorkspace.PORT_VAR_NAMES) {
+      const regex = new RegExp(`^${varName}\\s*=\\s*["']?(\\d{2,5})["']?`, "m");
+      const match = content.match(regex);
+      if (match?.[1]) return parseInt(match[1], 10);
+    }
+    return null;
   }
 
   /**
@@ -365,6 +444,24 @@ export class DaytonaWorkspace {
       if (!content) continue;
       const port = this.parsePortFromEnv(content);
       if (port) return { port, source };
+    }
+    return null;
+  }
+
+  /**
+   * Parse EXPOSE directives from a Dockerfile to detect the port.
+   * Returns the first numeric EXPOSE port found.
+   */
+  private async detectPortFromDockerfile(): Promise<{ port: number; source: string } | null> {
+    const dockerfiles = ["Dockerfile", "dockerfile", "Dockerfile.dev"];
+    for (const file of dockerfiles) {
+      const content = await this.readFile(`${this.repoDir}/${file}`);
+      if (!content) continue;
+      // Match EXPOSE 8080 or EXPOSE 8080/tcp — take first numeric port
+      const match = content.match(/^EXPOSE\s+(\d{2,5})/m);
+      if (match?.[1]) {
+        return { port: parseInt(match[1], 10), source: `${file} EXPOSE` };
+      }
     }
     return null;
   }
@@ -415,6 +512,13 @@ export class DaytonaWorkspace {
           }
         }
 
+        // Override: check Dockerfile EXPOSE (medium priority)
+        const dockerPort = await this.detectPortFromDockerfile();
+        if (dockerPort) {
+          port = dockerPort.port;
+          portSource = dockerPort.source;
+        }
+
         // Override: check .env files for PORT (highest priority)
         const envPort = await this.detectPortFromEnvFiles();
         if (envPort) {
@@ -450,6 +554,10 @@ export class DaytonaWorkspace {
       else if (lower.includes("fastapi")) { port = 8000; portSource = "FastAPI default"; }
       else if (lower.includes("flask")) { port = 5000; portSource = "Flask default"; }
 
+      // Override: Dockerfile EXPOSE
+      const dockerPort = await this.detectPortFromDockerfile();
+      if (dockerPort) { port = dockerPort.port; portSource = dockerPort.source; }
+
       // Override from .env files
       const envPort = await this.detectPortFromEnvFiles();
       if (envPort) { port = envPort.port; portSource = envPort.source; }
@@ -462,33 +570,46 @@ export class DaytonaWorkspace {
 
     // --- Go ---
     if (await this.fileExists(p("go.mod"))) {
-      const envPort = await this.detectPortFromEnvFiles();
-      const port = envPort?.port ?? 8080;
-      const portSource = envPort?.source ?? "Go default";
+      let port = 8080;
+      let portSource = "Go default";
+      const goDockerPort = await this.detectPortFromDockerfile();
+      if (goDockerPort) { port = goDockerPort.port; portSource = goDockerPort.source; }
+      const goEnvPort = await this.detectPortFromEnvFiles();
+      if (goEnvPort) { port = goEnvPort.port; portSource = goEnvPort.source; }
       return { installCommand: null, startCommand: "go run .", port, portSource };
     }
 
     // --- Rust ---
     if (await this.fileExists(p("Cargo.toml"))) {
-      const envPort = await this.detectPortFromEnvFiles();
-      const port = envPort?.port ?? 8080;
-      const portSource = envPort?.source ?? "Rust default";
+      let port = 8080;
+      let portSource = "Rust default";
+      const rustDockerPort = await this.detectPortFromDockerfile();
+      if (rustDockerPort) { port = rustDockerPort.port; portSource = rustDockerPort.source; }
+      const rustEnvPort = await this.detectPortFromEnvFiles();
+      if (rustEnvPort) { port = rustEnvPort.port; portSource = rustEnvPort.source; }
       return { installCommand: null, startCommand: "cargo run --release", port, portSource };
     }
 
     // --- Ruby ---
     const gemfile = await this.readFile(p("Gemfile"));
     if (gemfile) {
-      const envPort = await this.detectPortFromEnvFiles();
+      let port = gemfile.includes("rails") ? 3000 : 4567;
+      let portSource = gemfile.includes("rails") ? "Rails default" : "Sinatra default";
+      const rubyDockerPort = await this.detectPortFromDockerfile();
+      if (rubyDockerPort) { port = rubyDockerPort.port; portSource = rubyDockerPort.source; }
+      const rubyEnvPort = await this.detectPortFromEnvFiles();
+      if (rubyEnvPort) { port = rubyEnvPort.port; portSource = rubyEnvPort.source; }
       if (gemfile.includes("rails")) {
-        const port = envPort?.port ?? 3000;
-        return { installCommand: "bundle install", startCommand: `bundle exec rails s -b 0.0.0.0 -p ${port}`, port, portSource: envPort?.source ?? "Rails default" };
+        return { installCommand: "bundle install", startCommand: `bundle exec rails s -b 0.0.0.0 -p ${port}`, port, portSource };
       }
-      const port = envPort?.port ?? 4567;
-      return { installCommand: "bundle install", startCommand: "bundle exec ruby app.rb", port, portSource: envPort?.source ?? "Sinatra default" };
+      return { installCommand: "bundle install", startCommand: "bundle exec ruby app.rb", port, portSource };
     }
 
-    // --- Fallback: still check .env ---
+    // --- Fallback: check Dockerfile then .env ---
+    const fallbackDockerPort = await this.detectPortFromDockerfile();
+    if (fallbackDockerPort) {
+      return { installCommand: null, startCommand: "sleep infinity", port: fallbackDockerPort.port, portSource: fallbackDockerPort.source };
+    }
     const envPort = await this.detectPortFromEnvFiles();
     if (envPort) {
       return { installCommand: null, startCommand: "sleep infinity", port: envPort.port, portSource: envPort.source };
