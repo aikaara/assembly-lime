@@ -6,8 +6,11 @@
  * ES modules are cached, so importing multiple times is safe - setup only runs once.
  */
 if (typeof process !== "undefined" && process.versions?.node) {
-	import("undici").then((m) => {
-		const { EnvHttpProxyAgent, setGlobalDispatcher } = m;
-		setGlobalDispatcher(new EnvHttpProxyAgent());
-	});
+	import("undici")
+		.then((m) => {
+			if (typeof m.EnvHttpProxyAgent === "function" && typeof m.setGlobalDispatcher === "function") {
+				m.setGlobalDispatcher(new m.EnvHttpProxyAgent());
+			}
+		})
+		.catch(() => {});
 }
