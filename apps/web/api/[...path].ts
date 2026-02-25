@@ -22,7 +22,7 @@ export default async function handler(req: Request) {
     init.duplex = "half";
   }
 
-  const resp = await fetch(target, init);
+  const resp = await fetch(target, { ...init, redirect: "manual" });
 
   // Forward response back to client
   const respHeaders = new Headers(resp.headers);
