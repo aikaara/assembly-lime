@@ -10,7 +10,9 @@
     "./protocol": "./src/protocol.ts",
     "./db": "./src/db/index.ts",
     "./db/schema": "./src/db/schema/index.ts",
-    "./prompts": "./src/prompts/index.ts"
+    "./prompts": "./src/prompts/index.ts",
+    "./code-chunker": "./src/code-chunker.ts",
+    "./embeddings": "./src/embeddings.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

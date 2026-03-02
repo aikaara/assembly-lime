@@ -58,5 +58,27 @@ export async function dispatchDepScan(tenantId: number) {
   return handle;
 }
 
+// ── Code search indexing dispatch ──────────────────────────────────
+
+export async function dispatchCodeSearchIndex(payload: {
+  tenantId: number;
+  repositoryId: number;
+  repoFullName: string;
+  cloneUrl: string;
+  defaultBranch: string;
+  connectorId: number;
+  lastIndexedSha?: string;
+  authToken?: string;
+}) {
+  const handle = await tasks.trigger("code-search-index", payload, {
+    idempotencyKey: `code-search-index-${payload.repositoryId}-${Date.now()}`,
+  });
+  log.info(
+    { repositoryId: payload.repositoryId, repoFullName: payload.repoFullName, triggerRunId: handle.id },
+    "code search index dispatched to Trigger.dev",
+  );
+  return handle;
+}
+
 /** Logger callback that writes to both pino and job.log */
 export type JobLogger = (message: string) => Promise<void>;

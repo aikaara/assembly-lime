@@ -283,6 +283,34 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<RunResu
     });
     log.info({ toolCount: tools.length, mode: payload.mode }, "tools built");
 
+    // 6b. Set tenantId on emitter for semantic search
+    emitter.setTenantId(payload.tenantId);
+
+    // 6c. Pre-run RAG: fetch relevant code context from semantic search
+    let preRunContext: string | undefined;
+    try {
+      const hasIndex = await emitter.checkIndexReady(payload.tenantId);
+      if (hasIndex) {
+        log.info("pre-run RAG: fetching relevant code context");
+        const ragResults = await emitter.semanticSearch(
+          payload.inputPrompt,
+          { limit: 8 },
+          "query",
+        );
+        if (ragResults.length > 0) {
+          preRunContext = ragResults.map((r, i) => {
+            const sim = (r.similarity * 100).toFixed(1);
+            const symbol = r.symbolName ? ` — ${r.chunkType}: ${r.symbolName}` : "";
+            const snippet = r.content.length > 800 ? r.content.slice(0, 800) + "\n..." : r.content;
+            return `**${i + 1}. ${r.repoFullName} / ${r.filePath}:${r.startLine}-${r.endLine}${symbol}** (${sim}% match)\n\`\`\`${r.language}\n${snippet}\n\`\`\``;
+          }).join("\n\n");
+          log.info({ resultCount: ragResults.length }, "pre-run RAG context injected");
+        }
+      }
+    } catch (err) {
+      log.warn({ err }, "pre-run RAG failed (non-fatal, continuing without context)");
+    }
+
     // 7. Build system prompt
     const systemPrompt = buildSystemPrompt({
       mode: payload.mode,
@@ -290,6 +318,7 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<RunResu
       selectedTools: tools.map((t) => t.name),
       cwd,
       repos: repoPaths.length > 0 ? repoPaths : undefined,
+      preRunContext,
     });
 
     // 8. Create agent (restore session if available)

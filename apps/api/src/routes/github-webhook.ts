@@ -11,7 +11,8 @@ import {
   buildPipelines,
 } from "@assembly-lime/shared/db/schema";
 import { decryptToken } from "../lib/encryption";
-import { dispatchDepScan } from "../lib/queue";
+import { dispatchDepScan, dispatchCodeSearchIndex } from "../lib/queue";
+import { repoIndexStatus } from "@assembly-lime/shared/db/schema";
 import { childLogger } from "../lib/logger";
 
 const log = childLogger({ module: "github-webhook" });
@@ -306,6 +307,36 @@ async function handlePush(
     dispatchDepScan(tenantId).catch((err) => {
       log.warn({ tenantId, err }, "failed to dispatch dep-scan from webhook");
     });
+  }
+
+  // If push is to default branch, trigger incremental code search indexing
+  if (repo && branch === (repo.defaultBranch || payload.repository.default_branch)) {
+    try {
+      // Look up existing index status for lastIndexedSha
+      const [indexStatus] = await db
+        .select({ lastIndexedSha: repoIndexStatus.lastIndexedSha })
+        .from(repoIndexStatus)
+        .where(
+          and(
+            eq(repoIndexStatus.tenantId, tenantId),
+            eq(repoIndexStatus.repositoryId, repo.id),
+          )
+        );
+
+      dispatchCodeSearchIndex({
+        tenantId,
+        repositoryId: repo.id,
+        repoFullName: repo.fullName,
+        cloneUrl: repo.cloneUrl,
+        defaultBranch: repo.defaultBranch,
+        connectorId: repo.connectorId,
+        lastIndexedSha: indexStatus?.lastIndexedSha ?? undefined,
+      }).catch((err) => {
+        log.warn({ tenantId, repositoryId: repo.id, err }, "failed to dispatch code search index from webhook");
+      });
+    } catch (err) {
+      log.warn({ tenantId, repositoryId: repo.id, err }, "failed to check index status for webhook indexing");
+    }
   }
 
   // If the push is to a branch that matches an agent run (al/* branches),

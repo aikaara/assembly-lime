@@ -1,4 +1,5 @@
 import type { AgentEvent } from "@assembly-lime/shared";
+import { createEmbeddingProvider } from "@assembly-lime/shared";
 
 const API_BASE_URL = (process.env.API_BASE_URL || "http://localhost:3434").replace(/\/$/, "");
 const INTERNAL_KEY = process.env.INTERNAL_AGENT_API_KEY ?? "";
@@ -313,4 +314,97 @@ export class AgentEventEmitter {
       return null;
     }
   }
+
+  // ── Semantic code search ──
+
+  async checkIndexReady(tenantId: number): Promise<boolean> {
+    try {
+      const res = await fetch(
+        `${this.baseUrl}/internal/repo-index-status?tenantId=${tenantId}`,
+        { headers: { "x-internal-key": INTERNAL_KEY } },
+      );
+      if (!res.ok) return false;
+      const data = (await res.json()) as {
+        statuses: Array<{ status: string }>;
+      };
+      return data.statuses.some((s) => s.status === "ready");
+    } catch {
+      return false;
+    }
+  }
+
+  async semanticSearch(
+    query: string,
+    filters?: {
+      repository?: string;
+      language?: string;
+      chunkType?: string;
+      limit?: number;
+      repositoryId?: number;
+    },
+    inputType?: "query" | "document",
+  ): Promise<Array<{
+    id: string;
+    repositoryId: string;
+    repoFullName: string;
+    filePath: string;
+    chunkType: string;
+    symbolName: string | null;
+    language: string;
+    startLine: number;
+    endLine: number;
+    content: string;
+    contextHeader: string | null;
+    commitSha: string | null;
+    similarity: number;
+  }>> {
+    try {
+      const provider = createEmbeddingProvider();
+      const [embedding] = await provider.generateEmbeddings([query], inputType ?? "query");
+      if (!embedding) return [];
+
+      const params = new URLSearchParams({
+        tenantId: String(this.tenantId),
+        queryEmbedding: JSON.stringify(embedding),
+      });
+
+      if (filters?.repositoryId) params.set("repositoryId", String(filters.repositoryId));
+      if (filters?.language) params.set("language", filters.language);
+      if (filters?.chunkType) params.set("chunkType", filters.chunkType);
+      if (filters?.limit) params.set("limit", String(Math.min(filters.limit, 30)));
+
+      const res = await fetch(
+        `${this.baseUrl}/internal/code-search?${params}`,
+        { headers: { "x-internal-key": INTERNAL_KEY } },
+      );
+      if (!res.ok) return [];
+
+      const data = (await res.json()) as {
+        results: Array<{
+          id: string;
+          repositoryId: string;
+          repoFullName: string;
+          filePath: string;
+          chunkType: string;
+          symbolName: string | null;
+          language: string;
+          startLine: number;
+          endLine: number;
+          content: string;
+          contextHeader: string | null;
+          commitSha: string | null;
+          similarity: number;
+        }>;
+      };
+      return data.results.filter((r) => r.similarity > 0.3);
+    } catch (err) {
+      console.warn("[emitter] semanticSearch error:", err);
+      return [];
+    }
+  }
+
+  // Expose tenantId for semantic search tools
+  private _tenantId: number = 0;
+  get tenantId(): number { return this._tenantId; }
+  setTenantId(id: number): void { this._tenantId = id; }
 }

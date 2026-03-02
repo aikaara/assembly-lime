@@ -30,6 +30,7 @@ import { createPRTool, type PRContext } from "./create-pr.js";
 import { createSubagentTool } from "./subagent.js";
 import { createTasksTool } from "./create-tasks.js";
 import { createUpdateTaskStatusTool } from "./update-task-status.js";
+import { createSemanticSearchTool, createFindSimilarCodeTool, createFindUsagesTool } from "./semantic-search.js";
 import type { AgentEventEmitter } from "../agent/emitter.js";
 import type { DaytonaWorkspace } from "@assembly-lime/shared";
 
@@ -91,17 +92,43 @@ export function buildToolSet(
 				const updateTaskStatusTool = createUpdateTaskStatusTool(options.emitter);
 				registry.set(updateTaskStatusTool.name, updateTaskStatusTool);
 				tools.push(updateTaskStatusTool);
+				// Semantic search tools for plan mode
+				const semSearch = createSemanticSearchTool(options.emitter);
+				registry.set(semSearch.name, semSearch);
+				tools.push(semSearch);
+				const findUsages = createFindUsagesTool(options.emitter);
+				registry.set(findUsages.name, findUsages);
+				tools.push(findUsages);
 			}
 			break;
 		}
 
 		case "review":
 			tools = [bash, read, grep, find, ls, gitStatus, gitDiff];
+			if (options.emitter) {
+				const semSearchReview = createSemanticSearchTool(options.emitter);
+				registry.set(semSearchReview.name, semSearchReview);
+				tools.push(semSearchReview);
+				const findSimilarReview = createFindSimilarCodeTool(options.emitter);
+				registry.set(findSimilarReview.name, findSimilarReview);
+				tools.push(findSimilarReview);
+			}
 			break;
 
 		case "bugfix":
 			tools = [bash, read, write, edit, grep, find, ls, gitStatus, gitDiff, gitCommitPush];
 			if (options.prContext) tools.push(registry.get("create_pr")!);
+			if (options.emitter) {
+				const semSearchBugfix = createSemanticSearchTool(options.emitter);
+				registry.set(semSearchBugfix.name, semSearchBugfix);
+				tools.push(semSearchBugfix);
+				const findSimilarBugfix = createFindSimilarCodeTool(options.emitter);
+				registry.set(findSimilarBugfix.name, findSimilarBugfix);
+				tools.push(findSimilarBugfix);
+				const findUsagesBugfix = createFindUsagesTool(options.emitter);
+				registry.set(findUsagesBugfix.name, findUsagesBugfix);
+				tools.push(findUsagesBugfix);
+			}
 			break;
 
 		case "implement": {
@@ -111,6 +138,16 @@ export function buildToolSet(
 				const updateTaskStatusTool = createUpdateTaskStatusTool(options.emitter);
 				registry.set(updateTaskStatusTool.name, updateTaskStatusTool);
 				tools.push(updateTaskStatusTool);
+				// Semantic search tools for implement mode
+				const semSearchImpl = createSemanticSearchTool(options.emitter);
+				registry.set(semSearchImpl.name, semSearchImpl);
+				tools.push(semSearchImpl);
+				const findSimilarImpl = createFindSimilarCodeTool(options.emitter);
+				registry.set(findSimilarImpl.name, findSimilarImpl);
+				tools.push(findSimilarImpl);
+				const findUsagesImpl = createFindUsagesTool(options.emitter);
+				registry.set(findUsagesImpl.name, findUsagesImpl);
+				tools.push(findUsagesImpl);
 			}
 
 			// Subagent tool (implement mode only) — uses all registered tools EXCEPT subagent itself

@@ -21,6 +21,9 @@ const toolDescriptions: Record<string, string> = {
 	subagent: "Spawn specialized sub-agents for complex tasks",
 	create_tasks: "Create implementation tasks as tickets on the project board",
 	update_task_status: "Update a task's status to in_progress or completed",
+	semantic_search: "Search across all indexed repositories using natural language to find relevant code",
+	find_similar_code: "Find code that is structurally or semantically similar to a given snippet",
+	find_usages: "Find where a symbol (function, class, type) is used across all repositories",
 };
 
 export interface BuildSystemPromptOptions {
@@ -29,10 +32,11 @@ export interface BuildSystemPromptOptions {
 	selectedTools: string[];
 	cwd: string;
 	repos?: Array<{ name: string; path: string; primary: boolean }>;
+	preRunContext?: string;
 }
 
 export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
-	const { mode, resolvedPrompt, selectedTools, cwd, repos } = options;
+	const { mode, resolvedPrompt, selectedTools, cwd, repos, preRunContext } = options;
 
 	const now = new Date();
 	const dateTime = now.toLocaleString("en-US", {
@@ -91,7 +95,20 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 
 	const guidelinesText = guidelines.map((g) => `- ${g}`).join("\n");
 
-	let prompt = `${modePreamble}
+	let prompt = `${modePreamble}`;
+
+	// Inject pre-run context from semantic code search (before tools list)
+	if (preRunContext) {
+		prompt += `
+
+# Relevant Code Context (from org-wide semantic search)
+
+The following code snippets were found relevant to the user's request. Use them as starting context, and use the semantic_search / find_similar_code / find_usages tools for additional lookups as needed.
+
+${preRunContext}`;
+	}
+
+	prompt += `
 
 # Available Tools
 
@@ -142,6 +159,8 @@ Approach:
 6. Summarize the plan and list the created tasks
 
 Do NOT make any code changes — only read and analyze. Your final output should always include tasks created via the create_tasks tool. Each task title should be imperative and specific (e.g. "Add email validation to signup endpoint"). Include enough detail in the description for another developer (or agent) to implement it without ambiguity.
+
+When creating tasks, include the codeContext field with file paths, symbol names, line ranges, and reasons from your semantic_search results. This helps implementing agents jump straight to the relevant code.
 
 After creating tasks, update their status as you work through them using update_task_status. Mark each task as "in_progress" when you begin discussing it and "completed" when you've fully analyzed it.`;
 

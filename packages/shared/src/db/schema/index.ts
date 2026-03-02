@@ -20,3 +20,4 @@ export * from "./repo-dependencies";
 export * from "./sessions";
 export * from "./llm-call-dumps";
 export * from "./sandbox-cache";
+export * from "./code-chunks";

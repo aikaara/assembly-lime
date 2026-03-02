@@ -13,6 +13,7 @@ import { ClustersPage } from "./pages/ClustersPage";
 import { SandboxesPage } from "./pages/SandboxesPage";
 import { DomainsPage } from "./pages/DomainsPage";
 import { RepoDependencyGraphPage } from "./pages/RepoDependencyGraphPage";
+import { CodeSearchPage } from "./pages/CodeSearchPage";
 
 function App() {
   return (
@@ -33,6 +34,7 @@ function App() {
         <Route path="runs/:id" element={<RunDetailPage />} />
         <Route path="repos" element={<ReposPage />} />
         <Route path="repos/dependencies" element={<RepoDependencyGraphPage />} />
+        <Route path="code-search" element={<CodeSearchPage />} />
         <Route path="repos/:id" element={<RepoDetailPage />} />
         <Route path="connectors" element={<ConnectorsPage />} />
         <Route path="clusters" element={<ClustersPage />} />

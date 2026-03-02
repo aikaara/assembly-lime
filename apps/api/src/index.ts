@@ -19,6 +19,7 @@ import { domainRoutes } from "./routes/domains";
 import { toolDefinitionRoutes } from "./routes/tool-definitions";
 import { repositoryDependencyRoutes } from "./routes/repository-dependencies";
 import { envVarRoutes } from "./routes/env-vars";
+import { codeSearchRoutes } from "./routes/code-search";
 import { wsRoutes } from "./routes/ws";
 import { internalEventRoutes } from "./routes/internal-events";
 import { githubWebhookRoutes } from "./routes/github-webhook";
@@ -59,6 +60,7 @@ const app = new Elysia()
   .use(toolDefinitionRoutes(db))
   .use(repositoryDependencyRoutes(db))
   .use(envVarRoutes(db))
+  .use(codeSearchRoutes(db))
   .use(internalEventRoutes(db))
   .use(githubWebhookRoutes(db))
   .use(wsRoutes())

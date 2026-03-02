@@ -1,8 +1,8 @@
 import { Elysia, t } from "elysia";
-import { eq, and, gt, sql } from "drizzle-orm";
+import { eq, and, gt, inArray, sql } from "drizzle-orm";
 import { timingSafeEqual } from "crypto";
 import type { Db } from "@assembly-lime/shared/db";
-import { agentEvents, agentRuns, llmCallDumps, agentRunRepos, codeDiffs, tickets, sandboxCache } from "@assembly-lime/shared/db/schema";
+import { agentEvents, agentRuns, llmCallDumps, agentRunRepos, codeDiffs, tickets, sandboxCache, codeChunks, repoIndexStatus, repositories } from "@assembly-lime/shared/db/schema";
 import type { AgentEvent } from "@assembly-lime/shared";
 import { broadcastToWs } from "./ws";
 import { createTicket } from "../services/project.service";
@@ -821,6 +821,326 @@ export function internalEventRoutes(db: Db) {
       },
       {
         params: t.Object({ runId: t.String() }),
+      }
+    )
+    // ── Code chunks: batch upsert for code search indexing ──
+    .post(
+      "/code-chunks/:repositoryId",
+      async ({ request, params, body, set }) => {
+        const key = request.headers.get("x-internal-key");
+        if (!key || !verifyInternalKey(key)) {
+          set.status = 401;
+          return { error: "unauthorized" };
+        }
+
+        const repositoryId = Number(params.repositoryId);
+        if (Number.isNaN(repositoryId)) {
+          set.status = 400;
+          return { error: "invalid repositoryId" };
+        }
+
+        const data = body as {
+          tenantId: number;
+          commitSha: string;
+          deleteFilePaths?: string[];
+          chunks: Array<{
+            filePath: string;
+            chunkType: string;
+            symbolName: string | null;
+            language: string;
+            startLine: number;
+            endLine: number;
+            content: string;
+            contextHeader: string | null;
+            embedding: number[];
+          }>;
+        };
+
+        // Delete chunks for deleted files
+        if (data.deleteFilePaths && data.deleteFilePaths.length > 0) {
+          await db
+            .delete(codeChunks)
+            .where(
+              and(
+                eq(codeChunks.tenantId, data.tenantId),
+                eq(codeChunks.repositoryId, repositoryId),
+                inArray(codeChunks.filePath, data.deleteFilePaths),
+              )
+            );
+        }
+
+        // Delete existing chunks for files being re-indexed
+        if (data.chunks.length > 0) {
+          const filePaths = [...new Set(data.chunks.map((c) => c.filePath))];
+          await db
+            .delete(codeChunks)
+            .where(
+              and(
+                eq(codeChunks.tenantId, data.tenantId),
+                eq(codeChunks.repositoryId, repositoryId),
+                inArray(codeChunks.filePath, filePaths),
+              )
+            );
+        }
+
+        // Insert new chunks using raw SQL for pgvector embedding
+        for (const chunk of data.chunks) {
+          const embeddingStr = `[${chunk.embedding.join(",")}]`;
+          await db.execute(sql`
+            INSERT INTO code_chunks (
+              tenant_id, repository_id, file_path, chunk_type, symbol_name,
+              language, start_line, end_line, content, context_header,
+              embedding, commit_sha, created_at, updated_at
+            ) VALUES (
+              ${data.tenantId}, ${repositoryId}, ${chunk.filePath}, ${chunk.chunkType},
+              ${chunk.symbolName}, ${chunk.language}, ${chunk.startLine}, ${chunk.endLine},
+              ${chunk.content}, ${chunk.contextHeader},
+              ${sql.raw(`'${embeddingStr}'::vector`)}, ${data.commitSha},
+              NOW(), NOW()
+            )
+          `);
+        }
+
+        log.info({ repositoryId, chunkCount: data.chunks.length }, "code chunks upserted");
+        return { ok: true, inserted: data.chunks.length };
+      },
+      {
+        params: t.Object({ repositoryId: t.String() }),
+      }
+    )
+    // ── Code chunks: full wipe for re-index ──
+    .delete(
+      "/code-chunks/:repositoryId",
+      async ({ request, params, query, set }) => {
+        const key = request.headers.get("x-internal-key");
+        if (!key || !verifyInternalKey(key)) {
+          set.status = 401;
+          return { error: "unauthorized" };
+        }
+
+        const repositoryId = Number(params.repositoryId);
+        const tenantId = Number(query.tenantId ?? "0");
+        if (Number.isNaN(repositoryId) || !tenantId) {
+          set.status = 400;
+          return { error: "invalid repositoryId or tenantId" };
+        }
+
+        const result = await db
+          .delete(codeChunks)
+          .where(
+            and(
+              eq(codeChunks.tenantId, tenantId),
+              eq(codeChunks.repositoryId, repositoryId),
+            )
+          );
+
+        log.info({ repositoryId, tenantId }, "code chunks wiped for re-index");
+        return { ok: true };
+      },
+      {
+        params: t.Object({ repositoryId: t.String() }),
+        query: t.Object({ tenantId: t.Optional(t.String()) }),
+      }
+    )
+    // ── Repo index status: upsert ──
+    .post(
+      "/repo-index-status/:repositoryId",
+      async ({ request, params, body, set }) => {
+        const key = request.headers.get("x-internal-key");
+        if (!key || !verifyInternalKey(key)) {
+          set.status = 401;
+          return { error: "unauthorized" };
+        }
+
+        const repositoryId = Number(params.repositoryId);
+        if (Number.isNaN(repositoryId)) {
+          set.status = 400;
+          return { error: "invalid repositoryId" };
+        }
+
+        const data = body as {
+          tenantId: number;
+          status: string;
+          lastIndexedSha?: string;
+          fileCount?: number;
+          chunkCount?: number;
+          error?: string;
+        };
+
+        const now = new Date();
+        const values: Record<string, unknown> = {
+          status: data.status,
+          updatedAt: now,
+        };
+        if (data.lastIndexedSha !== undefined) values.lastIndexedSha = data.lastIndexedSha;
+        if (data.fileCount !== undefined) values.fileCount = data.fileCount;
+        if (data.chunkCount !== undefined) values.chunkCount = data.chunkCount;
+        if (data.error !== undefined) values.error = data.error;
+        if (data.status === "ready") values.lastIndexedAt = now;
+
+        await db
+          .insert(repoIndexStatus)
+          .values({
+            tenantId: data.tenantId,
+            repositoryId,
+            status: data.status,
+            lastIndexedSha: data.lastIndexedSha ?? null,
+            lastIndexedAt: data.status === "ready" ? now : null,
+            fileCount: data.fileCount ?? 0,
+            chunkCount: data.chunkCount ?? 0,
+            error: data.error ?? null,
+          })
+          .onConflictDoUpdate({
+            target: [repoIndexStatus.tenantId, repoIndexStatus.repositoryId],
+            set: values,
+          });
+
+        log.info({ repositoryId, status: data.status }, "repo index status updated");
+        return { ok: true };
+      },
+      {
+        params: t.Object({ repositoryId: t.String() }),
+      }
+    )
+    // ── Code search: vector similarity search ──
+    .get(
+      "/code-search",
+      async ({ request, query, set }) => {
+        const key = request.headers.get("x-internal-key");
+        if (!key || !verifyInternalKey(key)) {
+          set.status = 401;
+          return { error: "unauthorized" };
+        }
+
+        const tenantId = Number(query.tenantId);
+        if (!tenantId) {
+          set.status = 400;
+          return { error: "tenantId is required" };
+        }
+
+        let queryEmbedding: number[];
+        try {
+          queryEmbedding = JSON.parse(query.queryEmbedding ?? "[]");
+        } catch {
+          set.status = 400;
+          return { error: "invalid queryEmbedding" };
+        }
+
+        if (!queryEmbedding.length) {
+          set.status = 400;
+          return { error: "queryEmbedding is required" };
+        }
+
+        const limit = Math.min(50, Number(query.limit) || 10);
+        const embeddingStr = `[${queryEmbedding.join(",")}]`;
+
+        // Build WHERE clauses
+        const conditions: string[] = [`cc.tenant_id = ${tenantId}`];
+        if (query.repositoryId) conditions.push(`cc.repository_id = ${Number(query.repositoryId)}`);
+        if (query.language) conditions.push(`cc.language = '${query.language.replace(/'/g, "''")}'`);
+        if (query.chunkType) conditions.push(`cc.chunk_type = '${query.chunkType.replace(/'/g, "''")}'`);
+
+        const whereClause = conditions.join(" AND ");
+
+        const results = await db.execute(sql.raw(`
+          SELECT
+            cc.id,
+            cc.repository_id,
+            cc.file_path,
+            cc.chunk_type,
+            cc.symbol_name,
+            cc.language,
+            cc.start_line,
+            cc.end_line,
+            cc.content,
+            cc.context_header,
+            cc.commit_sha,
+            r.full_name as repo_full_name,
+            1 - (cc.embedding <=> '${embeddingStr}'::vector) AS similarity
+          FROM code_chunks cc
+          JOIN repositories r ON r.id = cc.repository_id
+          WHERE ${whereClause}
+          ORDER BY cc.embedding <=> '${embeddingStr}'::vector
+          LIMIT ${limit}
+        `));
+
+        return {
+          results: (results.rows as any[]).map((r) => ({
+            id: String(r.id),
+            repositoryId: String(r.repository_id),
+            repoFullName: r.repo_full_name,
+            filePath: r.file_path,
+            chunkType: r.chunk_type,
+            symbolName: r.symbol_name,
+            language: r.language,
+            startLine: r.start_line,
+            endLine: r.end_line,
+            content: r.content,
+            contextHeader: r.context_header,
+            commitSha: r.commit_sha,
+            similarity: Number(r.similarity),
+          })),
+        };
+      },
+      {
+        query: t.Object({
+          tenantId: t.String(),
+          queryEmbedding: t.String(),
+          repositoryId: t.Optional(t.String()),
+          language: t.Optional(t.String()),
+          chunkType: t.Optional(t.String()),
+          limit: t.Optional(t.String()),
+        }),
+      }
+    )
+    // ── Repo index status: list all for a tenant ──
+    .get(
+      "/repo-index-status",
+      async ({ request, query, set }) => {
+        const key = request.headers.get("x-internal-key");
+        if (!key || !verifyInternalKey(key)) {
+          set.status = 401;
+          return { error: "unauthorized" };
+        }
+
+        const tenantId = Number(query.tenantId);
+        if (!tenantId) {
+          set.status = 400;
+          return { error: "tenantId is required" };
+        }
+
+        const rows = await db
+          .select({
+            id: repoIndexStatus.id,
+            repositoryId: repoIndexStatus.repositoryId,
+            status: repoIndexStatus.status,
+            lastIndexedSha: repoIndexStatus.lastIndexedSha,
+            lastIndexedAt: repoIndexStatus.lastIndexedAt,
+            fileCount: repoIndexStatus.fileCount,
+            chunkCount: repoIndexStatus.chunkCount,
+            error: repoIndexStatus.error,
+            repoFullName: repositories.fullName,
+          })
+          .from(repoIndexStatus)
+          .innerJoin(repositories, eq(repositories.id, repoIndexStatus.repositoryId))
+          .where(eq(repoIndexStatus.tenantId, tenantId));
+
+        return {
+          statuses: rows.map((r) => ({
+            id: String(r.id),
+            repositoryId: String(r.repositoryId),
+            repoFullName: r.repoFullName,
+            status: r.status,
+            lastIndexedSha: r.lastIndexedSha,
+            lastIndexedAt: r.lastIndexedAt?.toISOString() ?? null,
+            fileCount: r.fileCount,
+            chunkCount: r.chunkCount,
+            error: r.error,
+          })),
+        };
+      },
+      {
+        query: t.Object({ tenantId: t.String() }),
       }
     );
 }
