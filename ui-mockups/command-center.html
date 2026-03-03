@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Assembly Lime - Command Center Mockup</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+    .resize-handle { cursor: col-resize; user-select: none; }
+    .resize-handle:hover, .resize-handle:active { background: #84cc16; }
+    @keyframes typing { from { width: 0; } to { width: 100%; } }
+    @keyframes blink { 50% { border-color: transparent; } }
+  </style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 h-screen overflow-hidden">
+
+  <div class="flex h-screen">
+    <!-- Mini sidebar (collapsed) -->
+    <aside class="flex h-full w-14 flex-col items-center bg-zinc-900 border-r border-zinc-800 py-4 shrink-0">
+      <div class="h-8 w-8 rounded-lg bg-lime-500 flex items-center justify-center text-zinc-950 font-bold text-sm mb-4">AL</div>
+      <nav class="flex-1 flex flex-col items-center gap-1 mt-2">
+        <a href="#" class="p-2 rounded-lg bg-zinc-800 text-lime-400" title="Command Center">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        </a>
+        <a href="#" class="p-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50" title="Board">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7"/></svg>
+        </a>
+        <a href="#" class="p-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50" title="Agent Runs">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </a>
+        <a href="#" class="p-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50" title="Repos">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+        </a>
+        <a href="#" class="p-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50" title="Code Search">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        </a>
+      </nav>
+    </aside>
+
+    <!-- Main area -->
+    <div class="flex flex-1 flex-col overflow-hidden">
+      <!-- Top bar -->
+      <header class="flex h-12 items-center justify-between border-b border-zinc-800 bg-zinc-950 px-4 shrink-0">
+        <div class="flex items-center gap-2 text-sm">
+          <span class="text-zinc-100 font-medium">Command Center</span>
+          <span class="text-zinc-700">/</span>
+          <span class="text-zinc-400 text-xs">Run #142</span>
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-400 ml-2">
+            <span class="h-1.5 w-1.5 rounded-full bg-blue-400 pulse-dot"></span>
+            Running
+          </span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="inline-flex items-center gap-1 text-[10px] text-zinc-600">
+            <span class="h-1.5 w-1.5 rounded-full bg-green-500"></span>Connected
+          </span>
+        </div>
+      </header>
+
+      <!-- SPLIT PANE: Transcript + Artifacts -->
+      <div class="flex flex-1 overflow-hidden">
+
+        <!-- LEFT: Transcript Panel -->
+        <div class="flex flex-col w-[55%] min-w-[300px] border-r border-zinc-800">
+          <!-- Messages -->
+          <div class="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+
+            <!-- User message -->
+            <div class="flex justify-end">
+              <div class="max-w-[85%] rounded-2xl rounded-br-md bg-lime-600/20 border border-lime-500/20 px-4 py-3">
+                <p class="text-sm text-zinc-200">Implement rate limiting middleware for the /api/agents endpoint. Use a sliding window algorithm with 100 requests per minute per API key. Store counters in Redis.</p>
+              </div>
+            </div>
+
+            <!-- Status divider -->
+            <div class="flex items-center gap-3 py-1">
+              <div class="flex-1 h-px bg-zinc-800"></div>
+              <span class="text-[10px] text-zinc-600 uppercase tracking-wider">Agent started</span>
+              <div class="flex-1 h-px bg-zinc-800"></div>
+            </div>
+
+            <!-- Agent message -->
+            <div class="flex gap-3">
+              <div class="h-6 w-6 rounded-full bg-violet-500/20 flex items-center justify-center shrink-0 mt-1">
+                <svg class="h-3.5 w-3.5 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+              </div>
+              <div class="flex-1">
+                <p class="text-sm text-zinc-300 leading-relaxed">I'll implement rate limiting for the <code class="rounded bg-zinc-800 px-1.5 py-0.5 text-xs font-mono text-lime-400">/api/agents</code> endpoint. Let me start by examining the current middleware structure and then create the rate limiter.</p>
+              </div>
+            </div>
+
+            <!-- Tool call: collapsed -->
+            <div class="ml-9">
+              <button onclick="this.nextElementSibling.classList.toggle('hidden'); this.querySelector('.chevron').classList.toggle('rotate-90')" class="flex items-center gap-2 w-full rounded-lg border border-zinc-800 bg-zinc-900/50 px-3 py-2 text-left hover:bg-zinc-800/50 transition-colors">
+                <svg class="h-3.5 w-3.5 text-zinc-600 chevron transition-transform rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <svg class="h-3.5 w-3.5 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                <span class="text-xs text-zinc-400 font-mono">read_file</span>
+                <span class="text-xs text-zinc-600 truncate flex-1">"src/middleware/index.ts"</span>
+                <span class="text-[10px] text-zinc-600 font-mono">0.8s</span>
+                <svg class="h-3.5 w-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+              </button>
+              <div class="hidden mt-1 rounded-lg border border-zinc-800 bg-zinc-900 overflow-hidden">
+                <div class="px-3 py-2 border-b border-zinc-800 bg-zinc-800/30">
+                  <p class="text-[10px] text-zinc-500 uppercase tracking-wider">Output</p>
+                </div>
+                <pre class="px-3 py-2 text-xs text-zinc-400 font-mono overflow-x-auto max-h-32"><code>import { Elysia } from "elysia";
+import { cors } from "@elysiajs/cors";
+import { requireAuth } from "./auth";
+
+export function createMiddleware() {
+  return new Elysia()
+    .use(cors())
+    .derive(({ request }) => ({
+      requestId: crypto.randomUUID(),
+    }));
+}</code></pre>
+              </div>
+            </div>
+
+            <!-- Tool call: collapsed (second) -->
+            <div class="ml-9">
+              <button onclick="this.nextElementSibling.classList.toggle('hidden'); this.querySelector('.chevron').classList.toggle('rotate-90')" class="flex items-center gap-2 w-full rounded-lg border border-zinc-800 bg-zinc-900/50 px-3 py-2 text-left hover:bg-zinc-800/50 transition-colors">
+                <svg class="h-3.5 w-3.5 text-zinc-600 chevron transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                <svg class="h-3.5 w-3.5 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                <span class="text-xs text-zinc-400 font-mono">semantic_search</span>
+                <span class="text-xs text-zinc-600 truncate flex-1">"rate limiting middleware"</span>
+                <span class="text-[10px] text-zinc-600 font-mono">1.2s</span>
+                <svg class="h-3.5 w-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+              </button>
+              <div class="hidden mt-1 rounded-lg border border-zinc-800 bg-zinc-900 overflow-hidden">
+                <div class="px-3 py-2 text-xs text-zinc-400 font-mono">3 results found</div>
+              </div>
+            </div>
+
+            <!-- Agent message with artifact reference -->
+            <div class="flex gap-3">
+              <div class="h-6 w-6 rounded-full bg-violet-500/20 flex items-center justify-center shrink-0 mt-1">
+                <svg class="h-3.5 w-3.5 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+              </div>
+              <div class="flex-1">
+                <p class="text-sm text-zinc-300 leading-relaxed mb-3">I've created the rate limiting middleware. Here's what I did:</p>
+                <ol class="text-sm text-zinc-400 space-y-1 list-decimal list-inside">
+                  <li>Created <code class="rounded bg-zinc-800 px-1.5 py-0.5 text-xs font-mono text-zinc-300">src/middleware/rate-limiter.ts</code> with sliding window algorithm</li>
+                  <li>Added Redis client connection in <code class="rounded bg-zinc-800 px-1.5 py-0.5 text-xs font-mono text-zinc-300">src/lib/redis.ts</code></li>
+                  <li>Updated the middleware stack to apply rate limiting to <code class="rounded bg-zinc-800 px-1.5 py-0.5 text-xs font-mono text-lime-400">/api/agents</code></li>
+                </ol>
+
+                <!-- Artifact link button -->
+                <button onclick="selectTab('diff')" class="mt-3 flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800/50 px-3 py-2 text-left hover:border-lime-500/30 hover:bg-lime-500/5 transition-all group">
+                  <svg class="h-4 w-4 text-lime-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                  <div>
+                    <p class="text-xs font-medium text-zinc-300 group-hover:text-lime-400">View Diff</p>
+                    <p class="text-[10px] text-zinc-600">3 files changed, +87 -2</p>
+                  </div>
+                  <svg class="h-4 w-4 text-zinc-600 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- Tool call: running (animated) -->
+            <div class="ml-9">
+              <div class="flex items-center gap-2 w-full rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2">
+                <div class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-blue-400 border-t-transparent shrink-0"></div>
+                <svg class="h-3.5 w-3.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                <span class="text-xs text-blue-400 font-mono">exec</span>
+                <span class="text-xs text-zinc-500 truncate">"bun test src/middleware/rate-limiter.test.ts"</span>
+                <span class="text-[10px] text-blue-400 font-mono ml-auto">3.2s...</span>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Input area -->
+          <div class="border-t border-zinc-800 p-4">
+            <div class="rounded-xl border border-zinc-700 bg-zinc-900 overflow-hidden focus-within:border-lime-500/50 transition-colors">
+              <textarea rows="2" placeholder="Send a message... (Cmd+Enter)" class="w-full resize-none bg-transparent px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none"></textarea>
+              <div class="flex items-center justify-between px-3 py-2 border-t border-zinc-800/50">
+                <div class="flex items-center gap-1.5">
+                  <button class="rounded-md px-2.5 py-1 text-[11px] font-medium bg-violet-500/15 text-violet-400 border border-violet-500/20">Plan</button>
+                  <button class="rounded-md px-2.5 py-1 text-[11px] font-medium text-zinc-500 hover:bg-zinc-800 hover:text-zinc-400 transition-colors">Implement</button>
+                  <button class="rounded-md px-2.5 py-1 text-[11px] font-medium text-zinc-500 hover:bg-zinc-800 hover:text-zinc-400 transition-colors">Bugfix</button>
+                  <button class="rounded-md px-2.5 py-1 text-[11px] font-medium text-zinc-500 hover:bg-zinc-800 hover:text-zinc-400 transition-colors">Review</button>
+                  <div class="w-px h-4 bg-zinc-800 mx-1"></div>
+                  <button class="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] text-zinc-500 hover:bg-zinc-800 hover:text-zinc-400 transition-colors">
+                    <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                    Claude
+                    <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                  </button>
+                </div>
+                <button class="rounded-lg bg-lime-500 px-3 py-1 text-xs font-medium text-zinc-950 hover:bg-lime-400 transition-colors">
+                  Send
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RESIZE HANDLE -->
+        <div class="resize-handle w-1 bg-zinc-800 hover:bg-lime-500 transition-colors cursor-col-resize shrink-0"></div>
+
+        <!-- RIGHT: Artifact Panel -->
+        <div class="flex flex-col flex-1 min-w-[300px]">
+          <!-- Artifact tabs -->
+          <div class="flex items-center border-b border-zinc-800 px-1 shrink-0">
+            <button onclick="selectTab('diff')" id="tab-diff" class="px-4 py-3 text-xs font-medium text-lime-400 border-b-2 border-lime-400 transition-colors">
+              Diff
+              <span class="ml-1.5 rounded bg-lime-500/15 px-1.5 py-0.5 text-[10px]">+87 -2</span>
+            </button>
+            <button onclick="selectTab('tasks')" id="tab-tasks" class="px-4 py-3 text-xs font-medium text-zinc-500 hover:text-zinc-300 border-b-2 border-transparent transition-colors">
+              Tasks
+              <span class="ml-1.5 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px]">3</span>
+            </button>
+            <button onclick="selectTab('terminal')" id="tab-terminal" class="px-4 py-3 text-xs font-medium text-zinc-500 hover:text-zinc-300 border-b-2 border-transparent transition-colors">
+              Terminal
+            </button>
+            <button onclick="selectTab('preview')" id="tab-preview" class="px-4 py-3 text-xs font-medium text-zinc-500 hover:text-zinc-300 border-b-2 border-transparent transition-colors">
+              Preview
+            </button>
+          </div>
+
+          <!-- Tab content: Diff -->
+          <div id="content-diff" class="flex-1 overflow-auto">
+            <!-- File header -->
+            <div class="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-800 bg-zinc-900/95 backdrop-blur px-4 py-2">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-mono text-zinc-300">src/middleware/rate-limiter.ts</span>
+                <span class="rounded bg-green-500/10 px-1.5 py-0.5 text-[10px] text-green-400">new</span>
+              </div>
+              <span class="text-[10px] text-zinc-600">+72 lines</span>
+            </div>
+            <div class="font-mono text-xs leading-6 overflow-x-auto">
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">1</span>
+                <span class="w-12 shrink-0 text-right pr-3 text-green-600 select-none">1</span>
+                <span class="flex-1 px-4 bg-green-500/5 text-green-300">+import { Redis } from "ioredis";</span>
+              </div>
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">2</span>
+                <span class="w-12 shrink-0 text-right pr-3 text-green-600 select-none">2</span>
+                <span class="flex-1 px-4 bg-green-500/5 text-green-300">+import { Elysia } from "elysia";</span>
+              </div>
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">3</span>
+                <span class="w-12 shrink-0 text-right pr-3 text-green-600 select-none">3</span>
+                <span class="flex-1 px-4 bg-green-500/5 text-green-300">+</span>
+              </div>
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">4</span>
+                <span class="w-12 shrink-0 text-right pr-3 text-green-600 select-none">4</span>
+                <span class="flex-1 px-4 bg-green-500/5 text-green-300">+<span class="text-violet-400">interface</span> <span class="text-lime-300">RateLimitConfig</span> {</span>
+              </div>
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">5</span>
+                <span class="w-12 shrink-0 text-right pr-3 text-green-600 select-none">5</span>
+                <span class="flex-1 px-4 bg-green-500/5 text-green-300">+  windowMs: <span class="text-blue-300">number</span>;</span>
+              </div>
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">6</span>
+                <span class="w-12 shrink-0 text-right pr-3 text-green-600 select-none">6</span>
+                <span class="flex-1 px-4 bg-green-500/5 text-green-300">+  maxRequests: <span class="text-blue-300">number</span>;</span>
+              </div>
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">7</span>
+                <span class="w-12 shrink-0 text-right pr-3 text-green-600 select-none">7</span>
+                <span class="flex-1 px-4 bg-green-500/5 text-green-300">+  keyExtractor: (req: Request) =&gt; <span class="text-blue-300">string</span>;</span>
+              </div>
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">8</span>
+                <span class="w-12 shrink-0 text-right pr-3 text-green-600 select-none">8</span>
+                <span class="flex-1 px-4 bg-green-500/5 text-green-300">+}</span>
+              </div>
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">9</span>
+                <span class="w-12 shrink-0 text-right pr-3 text-green-600 select-none">9</span>
+                <span class="flex-1 px-4 bg-green-500/5 text-green-300">+</span>
+              </div>
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">10</span>
+                <span class="w-12 shrink-0 text-right pr-3 text-green-600 select-none">10</span>
+                <span class="flex-1 px-4 bg-green-500/5 text-green-300">+<span class="text-violet-400">export function</span> <span class="text-lime-300">createRateLimiter</span>(redis: Redis, config: RateLimitConfig) {</span>
+              </div>
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">11</span>
+                <span class="w-12 shrink-0 text-right pr-3 text-green-600 select-none">11</span>
+                <span class="flex-1 px-4 bg-green-500/5 text-green-300">+  <span class="text-violet-400">const</span> { windowMs, maxRequests, keyExtractor } = config;</span>
+              </div>
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">12</span>
+                <span class="w-12 shrink-0 text-right pr-3 text-green-600 select-none">12</span>
+                <span class="flex-1 px-4 bg-green-500/5 text-green-300">+</span>
+              </div>
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">13</span>
+                <span class="w-12 shrink-0 text-right pr-3 text-green-600 select-none">13</span>
+                <span class="flex-1 px-4 bg-green-500/5 text-green-300">+  <span class="text-violet-400">return new</span> Elysia().onBeforeHandle(<span class="text-violet-400">async</span> ({ request, set }) =&gt; {</span>
+              </div>
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">14</span>
+                <span class="w-12 shrink-0 text-right pr-3 text-green-600 select-none">14</span>
+                <span class="flex-1 px-4 bg-green-500/5 text-green-300">+    <span class="text-violet-400">const</span> key = <span class="text-amber-300">`rate:${keyExtractor(request)}`</span>;</span>
+              </div>
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">15</span>
+                <span class="w-12 shrink-0 text-right pr-3 text-green-600 select-none">15</span>
+                <span class="flex-1 px-4 bg-green-500/5 text-green-300">+    <span class="text-violet-400">const</span> now = Date.now();</span>
+              </div>
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">16</span>
+                <span class="w-12 shrink-0 text-right pr-3 text-green-600 select-none">16</span>
+                <span class="flex-1 px-4 bg-green-500/5 text-green-300">+    <span class="text-violet-400">const</span> windowStart = now - windowMs;</span>
+              </div>
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none"></span>
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none"></span>
+                <span class="flex-1 px-4 text-zinc-600">  ...</span>
+              </div>
+            </div>
+
+            <!-- Second file -->
+            <div class="sticky top-0 z-10 flex items-center justify-between border-y border-zinc-800 bg-zinc-900/95 backdrop-blur px-4 py-2 mt-2">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-mono text-zinc-300">src/middleware/index.ts</span>
+                <span class="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">modified</span>
+              </div>
+              <span class="text-[10px] text-zinc-600">+3 -0</span>
+            </div>
+            <div class="font-mono text-xs leading-6 overflow-x-auto">
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">1</span>
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">1</span>
+                <span class="flex-1 px-4 text-zinc-400"> import { Elysia } from "elysia";</span>
+              </div>
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">2</span>
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">2</span>
+                <span class="flex-1 px-4 text-zinc-400"> import { cors } from "@elysiajs/cors";</span>
+              </div>
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none"></span>
+                <span class="w-12 shrink-0 text-right pr-3 text-green-600 select-none">3</span>
+                <span class="flex-1 px-4 bg-green-500/5 text-green-300">+import { createRateLimiter } from "./rate-limiter";</span>
+              </div>
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none"></span>
+                <span class="w-12 shrink-0 text-right pr-3 text-green-600 select-none">4</span>
+                <span class="flex-1 px-4 bg-green-500/5 text-green-300">+import { redis } from "../lib/redis";</span>
+              </div>
+              <div class="flex hover:bg-zinc-900/50">
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">3</span>
+                <span class="w-12 shrink-0 text-right pr-3 text-zinc-700 select-none">5</span>
+                <span class="flex-1 px-4 text-zinc-400"> import { requireAuth } from "./auth";</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab content: Tasks (hidden) -->
+          <div id="content-tasks" class="flex-1 overflow-auto hidden p-4 space-y-3">
+            <div class="rounded-lg border border-zinc-800 bg-zinc-900 p-4 space-y-3">
+              <h3 class="text-sm font-medium text-zinc-200">Planned Tasks</h3>
+              <div class="space-y-2">
+                <label class="flex items-start gap-3 cursor-pointer group">
+                  <input type="checkbox" checked class="mt-1 rounded border-zinc-600 bg-zinc-800 text-lime-500 focus:ring-lime-500">
+                  <div>
+                    <p class="text-sm text-zinc-300 group-hover:text-zinc-100">Create rate limiter middleware with sliding window</p>
+                    <p class="text-xs text-zinc-600 mt-0.5">src/middleware/rate-limiter.ts</p>
+                  </div>
+                </label>
+                <label class="flex items-start gap-3 cursor-pointer group">
+                  <input type="checkbox" checked class="mt-1 rounded border-zinc-600 bg-zinc-800 text-lime-500 focus:ring-lime-500">
+                  <div>
+                    <p class="text-sm text-zinc-300 group-hover:text-zinc-100">Add Redis client configuration</p>
+                    <p class="text-xs text-zinc-600 mt-0.5">src/lib/redis.ts</p>
+                  </div>
+                </label>
+                <label class="flex items-start gap-3 cursor-pointer group">
+                  <input type="checkbox" class="mt-1 rounded border-zinc-600 bg-zinc-800 text-lime-500 focus:ring-lime-500">
+                  <div>
+                    <p class="text-sm text-zinc-300 group-hover:text-zinc-100">Wire rate limiter into middleware stack</p>
+                    <p class="text-xs text-zinc-600 mt-0.5">src/middleware/index.ts</p>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab content: Terminal (hidden) -->
+          <div id="content-terminal" class="flex-1 overflow-auto hidden bg-zinc-950 p-4">
+            <pre class="font-mono text-xs text-zinc-400 leading-5"><code><span class="text-zinc-600">$</span> bun test src/middleware/rate-limiter.test.ts
+<span class="text-zinc-500">bun test v1.1.38</span>
+
+<span class="text-green-400">PASS</span> src/middleware/rate-limiter.test.ts
+  <span class="text-green-400">&#10003;</span> should allow requests within limit <span class="text-zinc-600">(12ms)</span>
+  <span class="text-green-400">&#10003;</span> should block requests exceeding limit <span class="text-zinc-600">(8ms)</span>
+  <span class="text-green-400">&#10003;</span> should reset after window expires <span class="text-zinc-600">(1004ms)</span>
+  <span class="text-green-400">&#10003;</span> should track per API key <span class="text-zinc-600">(15ms)</span>
+
+<span class="text-zinc-300">Tests: 4 passed, 4 total</span>
+<span class="text-zinc-600">Time:  1.24s</span></code></pre>
+          </div>
+
+          <!-- Tab content: Preview (hidden) -->
+          <div id="content-preview" class="flex-1 overflow-auto hidden flex items-center justify-center">
+            <div class="text-center">
+              <svg class="h-10 w-10 text-zinc-700 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+              <p class="text-sm text-zinc-500">No preview available</p>
+              <p class="text-xs text-zinc-600 mt-1">Preview will appear when a dev server is running</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function selectTab(name) {
+      ['diff','tasks','terminal','preview'].forEach(t => {
+        document.getElementById('tab-' + t).className = t === name
+          ? 'px-4 py-3 text-xs font-medium text-lime-400 border-b-2 border-lime-400 transition-colors'
+          : 'px-4 py-3 text-xs font-medium text-zinc-500 hover:text-zinc-300 border-b-2 border-transparent transition-colors';
+        document.getElementById('content-' + t).classList.toggle('hidden', t !== name);
+      });
+    }
+  </script>
+</body>
+</html>

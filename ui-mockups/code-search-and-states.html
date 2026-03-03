@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Assembly Lime - Code Search & States Mockup</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+    .skeleton { background: linear-gradient(90deg, #27272a 25%, #3f3f46 50%, #27272a 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 4px; }
+  </style>
+</head>
+<body class="bg-zinc-950 text-zinc-100">
+
+  <!-- Section selector -->
+  <div class="sticky top-0 z-50 bg-zinc-900 border-b border-zinc-800">
+    <div class="mx-auto max-w-6xl px-6 flex items-center gap-1 py-2">
+      <span class="text-xs text-zinc-600 mr-3">View:</span>
+      <button onclick="showSection('search')" class="rounded-md px-3 py-1.5 text-xs font-medium bg-lime-500/15 text-lime-400">Code Search</button>
+      <button onclick="showSection('empty')" class="rounded-md px-3 py-1.5 text-xs font-medium text-zinc-500 hover:bg-zinc-800">Empty States</button>
+      <button onclick="showSection('skeleton')" class="rounded-md px-3 py-1.5 text-xs font-medium text-zinc-500 hover:bg-zinc-800">Skeleton Loading</button>
+      <button onclick="showSection('badges')" class="rounded-md px-3 py-1.5 text-xs font-medium text-zinc-500 hover:bg-zinc-800">Badges & Status</button>
+    </div>
+  </div>
+
+  <!-- ==================== CODE SEARCH ==================== -->
+  <div id="section-search" class="mx-auto max-w-5xl px-6 py-8">
+    <div class="flex items-center justify-between mb-6">
+      <h1 class="text-2xl font-bold text-zinc-100">Code Search</h1>
+      <div class="flex items-center gap-2 text-xs text-zinc-600">
+        <span class="h-1.5 w-1.5 rounded-full bg-green-500"></span>
+        12 repos indexed &middot; 8,432 files &middot; 41,208 chunks
+      </div>
+    </div>
+
+    <!-- Search input (improved) -->
+    <div class="relative">
+      <svg class="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+      <input type="text" value="authentication middleware rate limit" class="w-full rounded-xl border border-zinc-700 bg-zinc-900 py-3.5 pl-12 pr-4 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-lime-500 focus:outline-none focus:ring-1 focus:ring-lime-500">
+      <div class="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+        <kbd class="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-500 font-mono">Enter</kbd>
+      </div>
+    </div>
+
+    <!-- Filter chips -->
+    <div class="mt-3 flex items-center gap-2 flex-wrap">
+      <span class="inline-flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-800 pl-2.5 pr-1.5 py-1 text-[11px] text-zinc-400 cursor-pointer hover:border-zinc-600">
+        Lang: All
+        <svg class="h-3 w-3 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+      </span>
+      <span class="inline-flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-800 pl-2.5 pr-1.5 py-1 text-[11px] text-zinc-400 cursor-pointer hover:border-zinc-600">
+        Type: Functions
+        <button class="rounded-full hover:bg-zinc-700 p-0.5">
+          <svg class="h-3 w-3 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </span>
+      <span class="inline-flex items-center gap-1.5 rounded-full border border-lime-500/30 bg-lime-500/10 pl-2.5 pr-1.5 py-1 text-[11px] text-lime-400 cursor-pointer">
+        Repo: acme/backend
+        <button class="rounded-full hover:bg-lime-500/20 p-0.5">
+          <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </span>
+      <span class="text-xs text-zinc-600 ml-2">7 results &middot; 0.12s</span>
+    </div>
+
+    <!-- Results -->
+    <div class="mt-6 space-y-3">
+
+      <!-- Result card 1 -->
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden hover:border-zinc-700 transition-colors cursor-pointer group">
+        <div class="flex items-center justify-between px-4 py-2.5 border-b border-zinc-800/50">
+          <div class="flex items-center gap-2">
+            <span class="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400">acme/backend</span>
+            <span class="text-xs font-mono text-zinc-300 group-hover:text-lime-400 transition-colors">src/middleware/auth.ts</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="rounded bg-violet-500/10 px-1.5 py-0.5 text-[10px] text-violet-400">function</span>
+            <span class="rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-400">typescript</span>
+            <span class="text-[10px] text-zinc-600 font-mono">L42-L68</span>
+            <span class="text-[10px] text-lime-400 font-medium">94%</span>
+          </div>
+        </div>
+        <div class="px-4 py-3">
+          <div class="flex items-center gap-2 mb-2">
+            <svg class="h-3.5 w-3.5 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+            <span class="text-xs font-medium text-zinc-300">requireAuth</span>
+          </div>
+          <pre class="font-mono text-xs leading-5 text-zinc-400 overflow-x-auto"><code><span class="text-violet-400">export function</span> <span class="text-lime-300">requireAuth</span>(db: PostgresJsDatabase) {
+  <span class="text-violet-400">return new</span> Elysia().derive(<span class="text-violet-400">async</span> ({ request, set }) =&gt; {
+    <span class="text-violet-400">const</span> sessionId = getCookie(request, <span class="text-amber-300">"session_id"</span>);
+    <span class="text-violet-400">if</span> (!sessionId) {
+      set.status = <span class="text-blue-300">401</span>;
+      <span class="text-violet-400">return</span> { error: <span class="text-amber-300">"Unauthorized"</span> };
+    }
+    <span class="text-zinc-600">// ... verify session and extract user</span></code></pre>
+        </div>
+      </div>
+
+      <!-- Result card 2 -->
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden hover:border-zinc-700 transition-colors cursor-pointer group">
+        <div class="flex items-center justify-between px-4 py-2.5 border-b border-zinc-800/50">
+          <div class="flex items-center gap-2">
+            <span class="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400">acme/backend</span>
+            <span class="text-xs font-mono text-zinc-300 group-hover:text-lime-400 transition-colors">src/routes/agents.ts</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="rounded bg-violet-500/10 px-1.5 py-0.5 text-[10px] text-violet-400">function</span>
+            <span class="rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-400">typescript</span>
+            <span class="text-[10px] text-zinc-600 font-mono">L15-L48</span>
+            <span class="text-[10px] text-lime-400 font-medium">87%</span>
+          </div>
+        </div>
+        <div class="px-4 py-3">
+          <div class="flex items-center gap-2 mb-2">
+            <svg class="h-3.5 w-3.5 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+            <span class="text-xs font-medium text-zinc-300">agentRoutes</span>
+          </div>
+          <pre class="font-mono text-xs leading-5 text-zinc-400 overflow-x-auto"><code><span class="text-violet-400">export function</span> <span class="text-lime-300">agentRoutes</span>(db: PostgresJsDatabase) {
+  <span class="text-violet-400">return new</span> Elysia({ prefix: <span class="text-amber-300">"/agent-runs"</span> })
+    .use(requireAuth(db))
+    .post(<span class="text-amber-300">"/"</span>, <span class="text-violet-400">async</span> ({ body, <span class="text-zinc-300">user</span>, <span class="text-zinc-300">tenant</span> }) =&gt; {
+      <span class="text-zinc-600">// dispatch agent run with rate limiting check</span></code></pre>
+        </div>
+      </div>
+
+      <!-- Result card 3 (different repo) -->
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden hover:border-zinc-700 transition-colors cursor-pointer group">
+        <div class="flex items-center justify-between px-4 py-2.5 border-b border-zinc-800/50">
+          <div class="flex items-center gap-2">
+            <span class="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400">acme/shared-lib</span>
+            <span class="text-xs font-mono text-zinc-300 group-hover:text-lime-400 transition-colors">src/rate-limit.ts</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="rounded bg-violet-500/10 px-1.5 py-0.5 text-[10px] text-violet-400">interface</span>
+            <span class="rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-400">typescript</span>
+            <span class="text-[10px] text-zinc-600 font-mono">L1-L22</span>
+            <span class="text-[10px] text-lime-400 font-medium">82%</span>
+          </div>
+        </div>
+        <div class="px-4 py-3">
+          <div class="flex items-center gap-2 mb-2">
+            <svg class="h-3.5 w-3.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            <span class="text-xs font-medium text-zinc-300">RateLimitOptions</span>
+          </div>
+          <pre class="font-mono text-xs leading-5 text-zinc-400 overflow-x-auto"><code><span class="text-violet-400">export interface</span> <span class="text-lime-300">RateLimitOptions</span> {
+  windowMs: <span class="text-blue-300">number</span>;
+  max: <span class="text-blue-300">number</span>;
+  keyGenerator?: (req: Request) =&gt; <span class="text-blue-300">string</span>;
+  handler?: (req: Request) =&gt; Response;
+  skipFailedRequests?: <span class="text-blue-300">boolean</span>;
+}</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== EMPTY STATES ==================== -->
+  <div id="section-empty" class="hidden mx-auto max-w-5xl px-6 py-8">
+    <h2 class="text-lg font-semibold text-zinc-200 mb-6">Empty States Gallery</h2>
+    <div class="grid grid-cols-2 gap-6">
+
+      <!-- No repos -->
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900 p-10 flex flex-col items-center text-center">
+        <div class="h-12 w-12 rounded-xl bg-zinc-800 flex items-center justify-center mb-4">
+          <svg class="h-6 w-6 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+        </div>
+        <h3 class="text-sm font-medium text-zinc-200 mb-1">No repositories connected</h3>
+        <p class="text-xs text-zinc-500 mb-4 max-w-xs">Connect a GitHub connector to import repositories and start working with AI agents.</p>
+        <button class="rounded-lg bg-lime-500 px-4 py-2 text-xs font-medium text-zinc-950 hover:bg-lime-400 transition-colors">Connect GitHub</button>
+      </div>
+
+      <!-- No agent runs -->
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900 p-10 flex flex-col items-center text-center">
+        <div class="h-12 w-12 rounded-xl bg-zinc-800 flex items-center justify-center mb-4">
+          <svg class="h-6 w-6 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <h3 class="text-sm font-medium text-zinc-200 mb-1">No agent runs yet</h3>
+        <p class="text-xs text-zinc-500 mb-4 max-w-xs">Run your first AI agent from the Command Center to plan, implement, or review code.</p>
+        <button class="rounded-lg bg-lime-500 px-4 py-2 text-xs font-medium text-zinc-950 hover:bg-lime-400 transition-colors">Go to Command Center</button>
+      </div>
+
+      <!-- No tickets -->
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900 p-10 flex flex-col items-center text-center">
+        <div class="h-12 w-12 rounded-xl bg-zinc-800 flex items-center justify-center mb-4">
+          <svg class="h-6 w-6 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        </div>
+        <h3 class="text-sm font-medium text-zinc-200 mb-1">No tickets on the board</h3>
+        <p class="text-xs text-zinc-500 mb-4 max-w-xs">Create a ticket manually or let an AI planning agent break down your feature request.</p>
+        <div class="flex items-center gap-2">
+          <button class="rounded-lg bg-lime-500 px-4 py-2 text-xs font-medium text-zinc-950 hover:bg-lime-400 transition-colors">Create Ticket</button>
+          <button class="rounded-lg border border-zinc-700 px-4 py-2 text-xs font-medium text-zinc-400 hover:bg-zinc-800 transition-colors">Run Planning Agent</button>
+        </div>
+      </div>
+
+      <!-- No search index -->
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900 p-10 flex flex-col items-center text-center">
+        <div class="h-12 w-12 rounded-xl bg-zinc-800 flex items-center justify-center mb-4">
+          <svg class="h-6 w-6 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        </div>
+        <h3 class="text-sm font-medium text-zinc-200 mb-1">No repositories indexed</h3>
+        <p class="text-xs text-zinc-500 mb-4 max-w-xs">Enable indexing on your repositories to search code semantically across your entire org.</p>
+        <button class="rounded-lg bg-lime-500 px-4 py-2 text-xs font-medium text-zinc-950 hover:bg-lime-400 transition-colors">Go to Repositories</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== SKELETON LOADING ==================== -->
+  <div id="section-skeleton" class="hidden mx-auto max-w-5xl px-6 py-8">
+    <h2 class="text-lg font-semibold text-zinc-200 mb-6">Skeleton Loading States</h2>
+
+    <h3 class="text-sm font-medium text-zinc-400 mb-3">Table skeleton</h3>
+    <div class="rounded-xl border border-zinc-800 bg-zinc-900 overflow-hidden mb-8">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
+        <div class="skeleton h-4 w-32"></div>
+        <div class="flex gap-2">
+          <div class="skeleton h-6 w-20 rounded-full"></div>
+          <div class="skeleton h-6 w-20 rounded-full"></div>
+        </div>
+      </div>
+      <div class="px-4 py-3 border-b border-zinc-800/30 flex items-center gap-4">
+        <div class="skeleton h-3 w-12"></div>
+        <div class="skeleton h-3 w-16"></div>
+        <div class="skeleton h-3 w-20"></div>
+        <div class="skeleton h-3 w-28 flex-1"></div>
+        <div class="skeleton h-3 w-14"></div>
+        <div class="skeleton h-3 w-10"></div>
+        <div class="skeleton h-3 w-16"></div>
+      </div>
+      <div class="px-4 py-3.5 border-b border-zinc-800/30 flex items-center gap-4">
+        <div class="skeleton h-3 w-12"></div>
+        <div class="skeleton h-5 w-20 rounded-full"></div>
+        <div class="skeleton h-3 w-16"></div>
+        <div class="skeleton h-3 w-36 flex-1"></div>
+        <div class="skeleton h-3 w-14"></div>
+        <div class="skeleton h-3 w-10"></div>
+        <div class="skeleton h-3 w-16"></div>
+      </div>
+      <div class="px-4 py-3.5 border-b border-zinc-800/30 flex items-center gap-4">
+        <div class="skeleton h-3 w-12"></div>
+        <div class="skeleton h-5 w-16 rounded-full"></div>
+        <div class="skeleton h-3 w-20"></div>
+        <div class="skeleton h-3 w-32 flex-1"></div>
+        <div class="skeleton h-3 w-14"></div>
+        <div class="skeleton h-3 w-10"></div>
+        <div class="skeleton h-3 w-16"></div>
+      </div>
+      <div class="px-4 py-3.5 border-b border-zinc-800/30 flex items-center gap-4">
+        <div class="skeleton h-3 w-12"></div>
+        <div class="skeleton h-5 w-20 rounded-full"></div>
+        <div class="skeleton h-3 w-16"></div>
+        <div class="skeleton h-3 w-40 flex-1"></div>
+        <div class="skeleton h-3 w-14"></div>
+        <div class="skeleton h-3 w-10"></div>
+        <div class="skeleton h-3 w-16"></div>
+      </div>
+      <div class="px-4 py-3.5 flex items-center gap-4">
+        <div class="skeleton h-3 w-12"></div>
+        <div class="skeleton h-5 w-18 rounded-full"></div>
+        <div class="skeleton h-3 w-14"></div>
+        <div class="skeleton h-3 w-28 flex-1"></div>
+        <div class="skeleton h-3 w-14"></div>
+        <div class="skeleton h-3 w-10"></div>
+        <div class="skeleton h-3 w-16"></div>
+      </div>
+    </div>
+
+    <h3 class="text-sm font-medium text-zinc-400 mb-3">Card skeleton</h3>
+    <div class="grid grid-cols-3 gap-4 mb-8">
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900 p-4 space-y-3">
+        <div class="flex items-center gap-2">
+          <div class="skeleton h-8 w-8 rounded-lg"></div>
+          <div class="skeleton h-4 w-28"></div>
+        </div>
+        <div class="skeleton h-3 w-full"></div>
+        <div class="skeleton h-3 w-3/4"></div>
+        <div class="flex items-center gap-2 mt-2">
+          <div class="skeleton h-5 w-16 rounded-full"></div>
+          <div class="skeleton h-5 w-12 rounded-full"></div>
+        </div>
+      </div>
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900 p-4 space-y-3">
+        <div class="flex items-center gap-2">
+          <div class="skeleton h-8 w-8 rounded-lg"></div>
+          <div class="skeleton h-4 w-32"></div>
+        </div>
+        <div class="skeleton h-3 w-full"></div>
+        <div class="skeleton h-3 w-2/3"></div>
+        <div class="flex items-center gap-2 mt-2">
+          <div class="skeleton h-5 w-20 rounded-full"></div>
+          <div class="skeleton h-5 w-14 rounded-full"></div>
+        </div>
+      </div>
+      <div class="rounded-xl border border-zinc-800 bg-zinc-900 p-4 space-y-3">
+        <div class="flex items-center gap-2">
+          <div class="skeleton h-8 w-8 rounded-lg"></div>
+          <div class="skeleton h-4 w-24"></div>
+        </div>
+        <div class="skeleton h-3 w-full"></div>
+        <div class="skeleton h-3 w-4/5"></div>
+        <div class="flex items-center gap-2 mt-2">
+          <div class="skeleton h-5 w-14 rounded-full"></div>
+          <div class="skeleton h-5 w-18 rounded-full"></div>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="text-sm font-medium text-zinc-400 mb-3">Transcript skeleton</h3>
+    <div class="rounded-xl border border-zinc-800 bg-zinc-900 p-4 space-y-4">
+      <div class="flex justify-end">
+        <div class="skeleton h-12 w-2/3 rounded-2xl rounded-br-md"></div>
+      </div>
+      <div class="flex gap-3">
+        <div class="skeleton h-6 w-6 rounded-full shrink-0"></div>
+        <div class="space-y-2 flex-1">
+          <div class="skeleton h-3 w-full"></div>
+          <div class="skeleton h-3 w-4/5"></div>
+          <div class="skeleton h-3 w-3/5"></div>
+        </div>
+      </div>
+      <div class="ml-9 skeleton h-10 w-full rounded-lg"></div>
+      <div class="flex gap-3">
+        <div class="skeleton h-6 w-6 rounded-full shrink-0"></div>
+        <div class="space-y-2 flex-1">
+          <div class="skeleton h-3 w-full"></div>
+          <div class="skeleton h-3 w-2/3"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== BADGES & STATUS ==================== -->
+  <div id="section-badges" class="hidden mx-auto max-w-5xl px-6 py-8">
+    <h2 class="text-lg font-semibold text-zinc-200 mb-6">Badges & Status Indicators</h2>
+
+    <div class="space-y-8">
+      <!-- Agent Run Status -->
+      <div>
+        <h3 class="text-sm font-medium text-zinc-400 mb-3">Agent Run Status</h3>
+        <div class="flex flex-wrap gap-3">
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-zinc-700/30 px-2.5 py-1 text-xs text-zinc-400">
+            <span class="h-1.5 w-1.5 rounded-full bg-zinc-500"></span>Queued
+          </span>
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 px-2.5 py-1 text-xs text-blue-400">
+            <span class="h-1.5 w-1.5 rounded-full bg-blue-400 pulse-dot"></span>Running
+          </span>
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-1 text-xs text-amber-400">
+            <span class="h-1.5 w-1.5 rounded-full bg-amber-400"></span>Awaiting Approval
+          </span>
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-green-500/10 px-2.5 py-1 text-xs text-green-400">
+            <span class="h-1.5 w-1.5 rounded-full bg-green-400"></span>Completed
+          </span>
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-red-500/10 px-2.5 py-1 text-xs text-red-400">
+            <span class="h-1.5 w-1.5 rounded-full bg-red-400"></span>Failed
+          </span>
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-zinc-700/30 px-2.5 py-1 text-xs text-zinc-500">
+            <span class="h-1.5 w-1.5 rounded-full bg-zinc-600"></span>Cancelled
+          </span>
+        </div>
+      </div>
+
+      <!-- Agent Mode -->
+      <div>
+        <h3 class="text-sm font-medium text-zinc-400 mb-3">Agent Mode</h3>
+        <div class="flex flex-wrap gap-3">
+          <span class="inline-flex items-center rounded-full bg-violet-500/10 px-2.5 py-1 text-xs font-medium text-violet-400">plan</span>
+          <span class="inline-flex items-center rounded-full bg-lime-500/10 px-2.5 py-1 text-xs font-medium text-lime-400">implement</span>
+          <span class="inline-flex items-center rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-400">bugfix</span>
+          <span class="inline-flex items-center rounded-full bg-blue-500/10 px-2.5 py-1 text-xs font-medium text-blue-400">review</span>
+        </div>
+      </div>
+
+      <!-- Language badges -->
+      <div>
+        <h3 class="text-sm font-medium text-zinc-400 mb-3">Language</h3>
+        <div class="flex flex-wrap gap-2">
+          <span class="rounded bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-400">typescript</span>
+          <span class="rounded bg-yellow-500/10 px-2 py-0.5 text-[10px] text-yellow-400">javascript</span>
+          <span class="rounded bg-green-500/10 px-2 py-0.5 text-[10px] text-green-400">python</span>
+          <span class="rounded bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-400">go</span>
+          <span class="rounded bg-orange-500/10 px-2 py-0.5 text-[10px] text-orange-400">rust</span>
+          <span class="rounded bg-red-500/10 px-2 py-0.5 text-[10px] text-red-400">ruby</span>
+          <span class="rounded bg-pink-500/10 px-2 py-0.5 text-[10px] text-pink-400">java</span>
+        </div>
+      </div>
+
+      <!-- Chunk types -->
+      <div>
+        <h3 class="text-sm font-medium text-zinc-400 mb-3">Code Chunk Type</h3>
+        <div class="flex flex-wrap gap-2">
+          <span class="rounded bg-violet-500/10 px-2 py-0.5 text-[10px] text-violet-400">function</span>
+          <span class="rounded bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-400">class</span>
+          <span class="rounded bg-blue-500/10 px-2 py-0.5 text-[10px] text-blue-400">interface</span>
+          <span class="rounded bg-green-500/10 px-2 py-0.5 text-[10px] text-green-400">method</span>
+          <span class="rounded bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-400">struct</span>
+          <span class="rounded bg-zinc-500/10 px-2 py-0.5 text-[10px] text-zinc-400">file_segment</span>
+        </div>
+      </div>
+
+      <!-- Index status -->
+      <div>
+        <h3 class="text-sm font-medium text-zinc-400 mb-3">Repository Index Status</h3>
+        <div class="flex flex-wrap gap-3">
+          <span class="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-800 px-2.5 py-1.5 text-xs text-zinc-400">
+            <span class="h-2 w-2 rounded-full bg-zinc-600"></span>Pending
+          </span>
+          <span class="inline-flex items-center gap-1.5 rounded-md border border-blue-500/20 bg-blue-500/10 px-2.5 py-1.5 text-xs text-blue-400">
+            <div class="h-2 w-2 animate-spin rounded-full border border-blue-400 border-t-transparent"></div>Indexing
+          </span>
+          <span class="inline-flex items-center gap-1.5 rounded-md border border-green-500/20 bg-green-500/10 px-2.5 py-1.5 text-xs text-green-400">
+            <span class="h-2 w-2 rounded-full bg-green-400"></span>Ready
+            <span class="text-[10px] text-green-500/50 ml-1">824 files</span>
+          </span>
+          <span class="inline-flex items-center gap-1.5 rounded-md border border-red-500/20 bg-red-500/10 px-2.5 py-1.5 text-xs text-red-400">
+            <span class="h-2 w-2 rounded-full bg-red-400"></span>Failed
+          </span>
+        </div>
+      </div>
+
+      <!-- Connection indicators -->
+      <div>
+        <h3 class="text-sm font-medium text-zinc-400 mb-3">Connection & Health</h3>
+        <div class="flex flex-wrap gap-4">
+          <span class="inline-flex items-center gap-1.5 text-xs text-green-400">
+            <span class="h-2 w-2 rounded-full bg-green-500"></span>Connected
+          </span>
+          <span class="inline-flex items-center gap-1.5 text-xs text-amber-400">
+            <span class="h-2 w-2 rounded-full bg-amber-500 pulse-dot"></span>Reconnecting
+          </span>
+          <span class="inline-flex items-center gap-1.5 text-xs text-zinc-500">
+            <span class="h-2 w-2 rounded-full bg-zinc-600"></span>Disconnected
+          </span>
+        </div>
+      </div>
+
+      <!-- Ticket priority -->
+      <div>
+        <h3 class="text-sm font-medium text-zinc-400 mb-3">Ticket Priority (border style)</h3>
+        <div class="flex flex-wrap gap-4">
+          <div class="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 border-l-2 border-l-red-500">
+            <p class="text-sm text-zinc-200">Critical priority</p>
+            <p class="text-xs text-zinc-500">Fix auth bypass vulnerability</p>
+          </div>
+          <div class="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 border-l-2 border-l-amber-500">
+            <p class="text-sm text-zinc-200">High priority</p>
+            <p class="text-xs text-zinc-500">Implement rate limiting</p>
+          </div>
+          <div class="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 border-l-2 border-l-blue-500">
+            <p class="text-sm text-zinc-200">Medium priority</p>
+            <p class="text-xs text-zinc-500">Add user preferences page</p>
+          </div>
+          <div class="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 border-l-2 border-l-zinc-600">
+            <p class="text-sm text-zinc-200">Low priority</p>
+            <p class="text-xs text-zinc-500">Update README docs</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+  </style>
+
+  <script>
+    function showSection(name) {
+      ['search','empty','skeleton','badges'].forEach(s => {
+        document.getElementById('section-' + s).classList.toggle('hidden', s !== name);
+      });
+      document.querySelectorAll('[onclick^="showSection"]').forEach(btn => {
+        btn.className = btn.getAttribute('onclick').includes(name)
+          ? 'rounded-md px-3 py-1.5 text-xs font-medium bg-lime-500/15 text-lime-400'
+          : 'rounded-md px-3 py-1.5 text-xs font-medium text-zinc-500 hover:bg-zinc-800';
+      });
+    }
+  </script>
+</body>
+</html>
