@@ -111,7 +111,7 @@ export function RepoDetailPage() {
             className="flex items-center gap-1.5 text-sm text-zinc-400 hover:text-zinc-200"
           >
             {repo.isEnabled ? (
-              <ToggleRight className="h-5 w-5 text-emerald-500" />
+              <ToggleRight className="h-5 w-5 text-lime-500" />
             ) : (
               <ToggleLeft className="h-5 w-5 text-zinc-600" />
             )}

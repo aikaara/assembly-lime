@@ -137,7 +137,7 @@ export function TranscriptPanel({
 
             {/* Chat input */}
             <div className="py-3">
-              <div className="relative flex items-end rounded-xl border border-zinc-700 bg-zinc-900 focus-within:border-emerald-600 focus-within:ring-1 focus-within:ring-emerald-600 transition-all">
+              <div className="relative flex items-end rounded-xl border border-zinc-700 bg-zinc-900 focus-within:border-lime-500 focus-within:ring-1 focus-within:ring-lime-500 transition-all">
                 <textarea
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
@@ -155,7 +155,7 @@ export function TranscriptPanel({
                 <button
                   onClick={handleSend}
                   disabled={!inputText.trim() || sending}
-                  className="m-1.5 rounded-lg bg-emerald-600 p-2 text-white hover:bg-emerald-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  className="m-1.5 rounded-lg bg-lime-500 p-2 text-zinc-950 hover:bg-lime-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                   <ArrowUp className="h-4 w-4" />
                 </button>
@@ -165,7 +165,7 @@ export function TranscriptPanel({
                 <span
                   className={`h-1.5 w-1.5 rounded-full ${
                     connectionState === "connected"
-                      ? "bg-emerald-500"
+                      ? "bg-lime-500"
                       : connectionState === "connecting"
                         ? "bg-amber-500 animate-pulse"
                         : "bg-zinc-600"

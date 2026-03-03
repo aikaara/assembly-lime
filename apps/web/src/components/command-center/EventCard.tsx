@@ -62,7 +62,7 @@ export function EventCard({ event }: { event: AgentEvent }) {
                 href={event.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="ml-2 text-emerald-400 hover:text-emerald-300 text-xs"
+                className="ml-2 text-lime-400 hover:text-lime-300 text-xs"
               >
                 Open
               </a>
@@ -165,7 +165,7 @@ export function EventCard({ event }: { event: AgentEvent }) {
                 href={event.previewUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-1 block text-emerald-400 hover:text-emerald-300 text-xs truncate"
+                className="mt-1 block text-lime-400 hover:text-lime-300 text-xs truncate"
               >
                 {event.previewUrl}
               </a>
@@ -177,13 +177,13 @@ export function EventCard({ event }: { event: AgentEvent }) {
     case "user_message":
       return (
         <div className="flex gap-3 py-2 justify-end">
-          <div className="max-w-[80%] rounded-lg border border-emerald-900/50 bg-emerald-950/30 px-3 py-2">
-            <span className="text-xs text-emerald-500 mb-1 block">You</span>
+          <div className="max-w-[80%] rounded-lg border border-lime-900/50 bg-lime-950/30 px-3 py-2">
+            <span className="text-xs text-lime-500 mb-1 block">You</span>
             <p className="text-sm text-zinc-200 whitespace-pre-wrap break-words">
               {event.text}
             </p>
           </div>
-          <User className="h-4 w-4 mt-0.5 shrink-0 text-emerald-500" />
+          <User className="h-4 w-4 mt-0.5 shrink-0 text-lime-500" />
         </div>
       );
 

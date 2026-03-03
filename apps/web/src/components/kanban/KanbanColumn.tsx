@@ -86,12 +86,12 @@ export function KanbanColumn({
                   }
                 }}
                 placeholder="Ticket title..."
-                className="w-full rounded bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-500 outline-none focus:ring-1 focus:ring-emerald-500/50"
+                className="w-full rounded bg-zinc-900 px-2 py-1.5 text-sm text-zinc-200 placeholder-zinc-500 outline-none focus:ring-1 focus:ring-lime-500/50"
               />
               <div className="mt-2 flex items-center gap-2">
                 <button
                   onClick={handleSubmit}
-                  className="rounded bg-emerald-600 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-emerald-500"
+                  className="rounded bg-lime-500 px-3 py-1 text-xs font-medium text-zinc-950 transition-colors hover:bg-lime-400"
                 >
                   Add
                 </button>

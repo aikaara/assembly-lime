@@ -10,6 +10,7 @@ import type {
 } from "../types";
 import { useAgentRunStream } from "../hooks/useAgentRunStream";
 import { TranscriptPanel } from "../components/command-center/TranscriptPanel";
+import { RunTimeline } from "../components/runs/RunTimeline";
 import { StatusDot } from "../components/ui/StatusDot";
 import { Badge } from "../components/ui/Badge";
 import { EmptyState } from "../components/ui/EmptyState";
@@ -118,7 +119,7 @@ export function RunDetailPage() {
           action={
             <Link
               to="/runs"
-              className="text-emerald-400 hover:text-emerald-300 text-sm"
+              className="text-lime-400 hover:text-lime-300 text-sm"
             >
               Back to runs
             </Link>
@@ -166,7 +167,7 @@ export function RunDetailPage() {
             <span
               className={`h-2 w-2 rounded-full ${
                 connectionState === "connected"
-                  ? "bg-emerald-500"
+                  ? "bg-lime-500"
                   : "bg-amber-500 animate-pulse"
               }`}
             />
@@ -184,6 +185,11 @@ export function RunDetailPage() {
             <span>Ended: {new Date(run.endedAt).toLocaleString()}</span>
           )}
         </div>
+      </div>
+
+      {/* Run Timeline */}
+      <div className="px-6 py-4 shrink-0">
+        <RunTimeline run={run} events={allEvents} />
       </div>
 
       {/* Transcript with interactive features */}

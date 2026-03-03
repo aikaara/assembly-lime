@@ -46,7 +46,7 @@ export function ApprovalBar({
         <button
           onClick={handleApprove}
           disabled={acting}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-lime-500 px-3 py-1.5 text-xs font-medium text-zinc-950 hover:bg-lime-400 disabled:opacity-50 transition-colors"
         >
           <Check className="h-3.5 w-3.5" />
           Approve

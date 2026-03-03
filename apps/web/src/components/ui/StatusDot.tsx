@@ -3,13 +3,13 @@ import type { AgentRunStatus } from "../../types";
 const STATUS_STYLES: Record<AgentRunStatus, string> = {
   queued: "bg-zinc-400",
   running: "bg-blue-500 animate-pulse",
-  completed: "bg-emerald-500",
+  completed: "bg-lime-500",
   failed: "bg-red-500",
   cancelled: "bg-amber-500",
   awaiting_approval: "bg-amber-400 animate-pulse",
-  awaiting_followup: "bg-emerald-400 animate-pulse",
+  awaiting_followup: "bg-lime-400 animate-pulse",
   awaiting_env_vars: "bg-amber-400 animate-pulse",
-  plan_approved: "bg-emerald-500",
+  plan_approved: "bg-lime-500",
 };
 
 const STATUS_LABELS: Record<AgentRunStatus, string> = {

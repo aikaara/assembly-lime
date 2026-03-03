@@ -16,6 +16,7 @@ import { useRecentRuns } from "../hooks/useRecentRuns";
 import { useAuth } from "../hooks/useAuth";
 import { PromptPanel } from "../components/command-center/PromptPanel";
 import { TranscriptPanel } from "../components/command-center/TranscriptPanel";
+import { ArtifactPanel } from "../components/command-center/ArtifactPanel";
 import { StatusDot } from "../components/ui/StatusDot";
 
 function parseEventPayload(raw: AgentEventResponse): AgentEvent | null {
@@ -119,6 +120,11 @@ export function CommandCenterPage() {
 
   // All events = historical + live (deduplication not needed — WS only streams new events)
   const allEvents = [...historicalEvents, ...liveEvents];
+
+  // Check if there are any artifacts to show the split pane
+  const hasArtifacts = allEvents.some(
+    (e) => e.type === "diff" || e.type === "tasks" || e.type === "log" || e.type === "preview",
+  );
 
   // ── Handlers ──
 
@@ -225,7 +231,7 @@ export function CommandCenterPage() {
         </div>
       )}
 
-      {/* Prompt panel (show when no active run, or collapsed) */}
+      {/* Prompt panel (show when no active run) */}
       {!hasActiveRun && (
         <PromptPanel
           onSubmit={handleSubmit}
@@ -241,18 +247,40 @@ export function CommandCenterPage() {
         </div>
       )}
 
-      {/* Transcript panel */}
-      <TranscriptPanel
-        events={allEvents}
-        connectionState={isLive ? connectionState : "disconnected"}
-        runId={activeRunId}
-        runStatus={displayStatus}
-        inputPrompt={run?.inputPrompt}
-        onSendMessage={handleSendMessage}
-        onApprove={handleApprove}
-        onReject={handleReject}
-        onSubmitEnvVars={handleSubmitEnvVars}
-      />
+      {/* Split pane: Transcript + Artifacts */}
+      {hasActiveRun && !loadingRun && (
+        <div className="flex flex-1 min-h-0">
+          {/* Transcript (left) */}
+          <div className={`flex flex-col min-w-[300px] ${hasArtifacts ? "w-[55%] border-r border-zinc-800" : "flex-1"}`}>
+            <TranscriptPanel
+              events={allEvents}
+              connectionState={isLive ? connectionState : "disconnected"}
+              runId={activeRunId}
+              runStatus={displayStatus}
+              inputPrompt={run?.inputPrompt}
+              onSendMessage={handleSendMessage}
+              onApprove={handleApprove}
+              onReject={handleReject}
+              onSubmitEnvVars={handleSubmitEnvVars}
+            />
+          </div>
+
+          {/* Artifacts (right) — only show when there are artifacts */}
+          {hasArtifacts && <ArtifactPanel events={allEvents} />}
+        </div>
+      )}
+
+      {/* When no active run and transcript is empty */}
+      {!hasActiveRun && (
+        <TranscriptPanel
+          events={allEvents}
+          connectionState="disconnected"
+          runId={activeRunId}
+          runStatus={displayStatus}
+          inputPrompt={null}
+          onSendMessage={handleSendMessage}
+        />
+      )}
     </div>
   );
 }

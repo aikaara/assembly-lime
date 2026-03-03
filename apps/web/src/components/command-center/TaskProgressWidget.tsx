@@ -53,7 +53,7 @@ export function TaskProgressWidget({ tasks }: { tasks: Task[] }) {
                 {i + 1}
               </span>
               {task.status === "completed" ? (
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                <CheckCircle2 className="h-3.5 w-3.5 text-lime-500 shrink-0" />
               ) : task.status === "in_progress" ? (
                 <Loader2 className="h-3.5 w-3.5 text-blue-400 shrink-0 animate-spin" />
               ) : (

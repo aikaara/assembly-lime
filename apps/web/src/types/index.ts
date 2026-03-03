@@ -155,7 +155,7 @@ export const COLUMNS: Record<ColumnKey, { label: string; color: string }> = {
   in_progress: { label: "In Progress", color: "bg-amber-600" },
   code_review: { label: "Code Review", color: "bg-purple-600" },
   qa: { label: "QA", color: "bg-cyan-600" },
-  done: { label: "Done", color: "bg-emerald-600" },
+  done: { label: "Done", color: "bg-lime-500" },
 };
 
 export type TicketPriority = "low" | "medium" | "high" | "critical";

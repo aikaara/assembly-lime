@@ -17,7 +17,7 @@ export function DiffViewer({
       <pre className="overflow-x-auto p-3 text-xs leading-5 font-mono">
         {lines.map((line, i) => {
           let className = "text-zinc-400";
-          if (line.startsWith("+")) className = "text-emerald-400";
+          if (line.startsWith("+")) className = "text-lime-400";
           else if (line.startsWith("-")) className = "text-red-400";
           else if (line.startsWith("@@")) className = "text-blue-400";
           else if (line.startsWith("diff ") || line.startsWith("index "))

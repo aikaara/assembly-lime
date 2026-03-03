@@ -40,7 +40,7 @@ export function MarkdownContent({ text }: { text: string }) {
             href={href}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2"
+            className="text-lime-400 hover:text-lime-300 underline underline-offset-2"
           >
             {children}
           </a>
@@ -55,7 +55,7 @@ export function MarkdownContent({ text }: { text: string }) {
             );
           }
           return (
-            <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs font-mono text-emerald-400">
+            <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs font-mono text-lime-400">
               {children}
             </code>
           );

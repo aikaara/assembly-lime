@@ -111,7 +111,7 @@ export function AgentRunsPage() {
                   <td className="px-4 py-3">
                     <Link
                       to={`/command-center/${run.id}`}
-                      className="text-emerald-400 hover:text-emerald-300 font-mono"
+                      className="text-lime-400 hover:text-lime-300 font-mono"
                     >
                       #{run.id}
                     </Link>

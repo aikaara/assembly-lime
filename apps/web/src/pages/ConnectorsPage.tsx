@@ -166,7 +166,7 @@ export function ConnectorsPage() {
         <h1 className="text-xl font-semibold text-zinc-100">Connectors</h1>
         <button
           onClick={() => setShowCreate(!showCreate)}
-          className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition-colors"
+          className="flex items-center gap-2 rounded-lg bg-lime-500 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-lime-400 transition-colors"
         >
           <Plus className="h-4 w-4" />
           Add Connector
@@ -182,21 +182,21 @@ export function ConnectorsPage() {
               placeholder="GitHub Personal Access Token"
               value={token}
               onChange={(e) => setToken(e.target.value)}
-              className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
+              className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-lime-500 focus:outline-none"
             />
             <input
               type="text"
               placeholder="Organization (optional, leave blank for personal repos)"
               value={org}
               onChange={(e) => setOrg(e.target.value)}
-              className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
+              className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-lime-500 focus:outline-none"
             />
           </div>
           <div className="flex gap-2">
             <button
               onClick={handleCreate}
               disabled={creating || !token}
-              className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors"
+              className="rounded-md bg-lime-500 px-3 py-1.5 text-sm text-zinc-950 hover:bg-lime-400 disabled:opacity-50 transition-colors"
             >
               {creating ? "Creating..." : "Create"}
             </button>
@@ -218,7 +218,7 @@ export function ConnectorsPage() {
           action={
             <a
               href={`${API_BASE}/auth/github`}
-              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition-colors"
+              className="inline-flex items-center gap-2 rounded-lg bg-lime-500 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-lime-400 transition-colors"
             >
               <GitBranch className="h-4 w-4" />
               Connect GitHub
@@ -235,7 +235,7 @@ export function ConnectorsPage() {
                   <span className="text-sm font-medium text-zinc-200">
                     GitHub {c.externalOrg ? `(${c.externalOrg})` : "(Personal)"}
                   </span>
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                  <span className="h-2 w-2 rounded-full bg-lime-500" />
                 </div>
                 <p className="text-xs text-zinc-500 mt-1">
                   Created {new Date(c.createdAt).toLocaleDateString()}
@@ -245,7 +245,7 @@ export function ConnectorsPage() {
                 <button
                   onClick={() => handleSync(c.id)}
                   disabled={syncing === c.id}
-                  className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors"
+                  className="flex items-center gap-1.5 rounded-md bg-lime-500 px-3 py-1.5 text-xs text-zinc-950 hover:bg-lime-400 disabled:opacity-50 transition-colors"
                 >
                   <RefreshCw className={`h-3.5 w-3.5 ${syncing === c.id ? "animate-spin" : ""}`} />
                   {syncing === c.id ? "Syncing..." : "Sync Repos"}
@@ -288,7 +288,7 @@ export function ConnectorsPage() {
               <button
                 onClick={handleImport}
                 disabled={importing}
-                className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors"
+                className="rounded-md bg-lime-500 px-3 py-1.5 text-xs text-zinc-950 hover:bg-lime-400 disabled:opacity-50 transition-colors"
               >
                 {importing ? "Importing..." : `Import ${selectedRepos.size} repo(s)`}
               </button>
@@ -311,7 +311,7 @@ export function ConnectorsPage() {
                     type="checkbox"
                     checked={selectedRepos.has(r.fullName)}
                     onChange={() => toggleRepo(r.fullName)}
-                    className="rounded border-zinc-600 bg-zinc-800 text-emerald-500 focus:ring-emerald-500"
+                    className="rounded border-zinc-600 bg-zinc-800 text-lime-500 focus:ring-lime-500"
                   />
                   <div className="flex-1 min-w-0">
                     <span className="text-sm text-zinc-200">{r.fullName}</span>

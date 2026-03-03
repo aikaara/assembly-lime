@@ -23,7 +23,7 @@ export function BranchSelector({ uatBranch, prodBranch, defaultBranch, onChange 
             value={uatBranch}
             placeholder={defaultBranch}
             onChange={(e) => onChange("uatBranch", e.target.value)}
-            className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-emerald-500 focus:outline-none"
+            className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-lime-500 focus:outline-none"
           />
         </div>
         <div>
@@ -33,7 +33,7 @@ export function BranchSelector({ uatBranch, prodBranch, defaultBranch, onChange 
             value={prodBranch}
             placeholder={defaultBranch}
             onChange={(e) => onChange("prodBranch", e.target.value)}
-            className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-emerald-500 focus:outline-none"
+            className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 focus:border-lime-500 focus:outline-none"
           />
         </div>
       </div>

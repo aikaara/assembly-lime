@@ -92,12 +92,12 @@ export function TicketDrawer({
                   )}
                   {ticket.prUrl && (
                     <div className="flex items-center gap-2 text-sm text-zinc-400">
-                      <GitPullRequest className="h-4 w-4 text-emerald-500" />
+                      <GitPullRequest className="h-4 w-4 text-lime-500" />
                       <a
                         href={ticket.prUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-emerald-400 hover:text-emerald-300 text-xs"
+                        className="text-lime-400 hover:text-lime-300 text-xs"
                       >
                         View Pull Request
                       </a>

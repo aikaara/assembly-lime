@@ -53,7 +53,7 @@ export function DomainsPage() {
   }
 
   const statusColors: Record<string, string> = {
-    active: "bg-emerald-500",
+    active: "bg-lime-500",
     provisioning: "bg-amber-500",
     pending: "bg-blue-500",
     error: "bg-red-500",
@@ -70,7 +70,7 @@ export function DomainsPage() {
         <h1 className="text-xl font-semibold text-zinc-100">Domains</h1>
         <button
           onClick={() => setShowCreate(!showCreate)}
-          className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition-colors"
+          className="flex items-center gap-2 rounded-lg bg-lime-500 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-lime-400 transition-colors"
         >
           <Plus className="h-4 w-4" />
           Add Domain
@@ -85,13 +85,13 @@ export function DomainsPage() {
             placeholder="example.assemblylime.dev"
             value={domainName}
             onChange={(e) => setDomainName(e.target.value)}
-            className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
+            className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-lime-500 focus:outline-none"
           />
           <div className="flex gap-2">
             <button
               onClick={handleCreate}
               disabled={creating || !domainName}
-              className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors"
+              className="rounded-md bg-lime-500 px-3 py-1.5 text-sm text-zinc-950 hover:bg-lime-400 disabled:opacity-50 transition-colors"
             >
               {creating ? "Creating..." : "Create"}
             </button>
@@ -123,7 +123,7 @@ export function DomainsPage() {
                     <span className={`h-2 w-2 rounded-full ${statusColors[d.status] ?? "bg-zinc-500"}`} />
                     <span className="text-xs text-zinc-500">{d.status}</span>
                     {d.tlsCertSecret && (
-                      <span className="text-xs text-emerald-500">TLS</span>
+                      <span className="text-xs text-lime-500">TLS</span>
                     )}
                   </div>
                 </div>

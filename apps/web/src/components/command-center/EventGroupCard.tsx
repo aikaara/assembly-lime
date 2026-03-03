@@ -7,6 +7,7 @@ import { CollapsibleSection } from "./CollapsibleSection";
 import { MarkdownContent } from "./MarkdownContent";
 import {
   AlertTriangle,
+  Check,
   Package,
   Globe,
   Monitor,
@@ -14,6 +15,14 @@ import {
   ScrollText,
   ListChecks,
 } from "lucide-react";
+
+function CheckMark() {
+  return (
+    <div className="h-3.5 w-3.5 shrink-0">
+      <Check className="h-3.5 w-3.5 text-green-500" />
+    </div>
+  );
+}
 
 function statusBadgeVariant(
   status: AgentRunStatus,
@@ -28,7 +37,7 @@ function statusBadgeVariant(
 
 export function EventGroupCard({ group }: { group: EventGroup }) {
   switch (group.kind) {
-    // ── User prompts: right-aligned emerald bubble ──
+    // ── User prompts: right-aligned lime bubble ──
     case "initial_prompt":
     case "user_message": {
       const text = (
@@ -36,7 +45,7 @@ export function EventGroupCard({ group }: { group: EventGroup }) {
       ).text;
       return (
         <div className="flex justify-end py-1">
-          <div className="max-w-[85%] rounded-2xl rounded-br-md bg-emerald-600/20 border border-emerald-700/40 px-4 py-2.5">
+          <div className="max-w-[85%] rounded-2xl rounded-br-md bg-lime-500/20 border border-lime-600/40 px-4 py-2.5">
             <p className="text-sm text-zinc-200 whitespace-pre-wrap break-words leading-relaxed">
               {text}
             </p>
@@ -59,28 +68,44 @@ export function EventGroupCard({ group }: { group: EventGroup }) {
       );
     }
 
-    // ── Tool messages: collapsible ──
+    // ── Tool messages: compact single-line with expand ──
     case "tool_messages": {
-      const count = group.events.length;
       return (
-        <div className="py-1">
-          <CollapsibleSection
-            label={`${count} tool call${count !== 1 ? "s" : ""}`}
-            badge={
-              <Wrench className="h-3 w-3 text-zinc-500" />
-            }
-          >
-            <div className="ml-5 mt-1 space-y-1 border-l border-zinc-800 pl-3">
-              {group.events.map((event, i) => (
-                <pre
-                  key={i}
-                  className="text-xs text-zinc-500 font-mono whitespace-pre-wrap break-all"
-                >
-                  {(event as Extract<AgentEvent, { type: "message" }>).text}
+        <div className="py-1 ml-4 space-y-1">
+          {group.events.map((event, i) => {
+            const text = (
+              event as Extract<AgentEvent, { type: "message" }>
+            ).text;
+            // Try to extract tool name and args from the text
+            const toolMatch = text.match(
+              /^(?:Tool|Called?|Running)\s+`?(\w+)`?\s*(?:with|:|\()?\s*(.*)/is,
+            );
+            const toolName = toolMatch?.[1] ?? "tool";
+            const toolArgs = toolMatch?.[2]?.slice(0, 60) ?? text.slice(0, 60);
+
+            return (
+              <CollapsibleSection
+                key={i}
+                label=""
+                badge={
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <Wrench className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
+                    <span className="text-xs text-zinc-400 font-mono">
+                      {toolName}
+                    </span>
+                    <span className="text-xs text-zinc-600 truncate flex-1">
+                      {toolArgs}
+                    </span>
+                    <CheckMark />
+                  </div>
+                }
+              >
+                <pre className="ml-5 mt-1 text-xs text-zinc-500 font-mono whitespace-pre-wrap break-all border-l border-zinc-800 pl-3">
+                  {text}
                 </pre>
-              ))}
-            </div>
-          </CollapsibleSection>
+              </CollapsibleSection>
+            );
+          })}
         </div>
       );
     }
@@ -268,7 +293,7 @@ export function EventGroupCard({ group }: { group: EventGroup }) {
                 href={event.previewUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-emerald-400 hover:text-emerald-300 font-mono truncate max-w-xs"
+                className="text-lime-400 hover:text-lime-300 font-mono truncate max-w-xs"
               >
                 {event.previewUrl}
               </a>
@@ -294,7 +319,7 @@ export function EventGroupCard({ group }: { group: EventGroup }) {
                 href={event.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-emerald-400 hover:text-emerald-300"
+                className="text-lime-400 hover:text-lime-300"
               >
                 Open
               </a>

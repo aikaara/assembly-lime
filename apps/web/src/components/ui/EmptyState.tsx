@@ -13,7 +13,9 @@ export function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
-      <Icon className="h-12 w-12 text-zinc-600 mb-4" />
+      <div className="mb-4 rounded-2xl bg-zinc-900 border border-zinc-800 p-4">
+        <Icon className="h-8 w-8 text-zinc-600" />
+      </div>
       <h3 className="text-lg font-medium text-zinc-300 mb-1">{title}</h3>
       <p className="text-sm text-zinc-500 max-w-sm">{description}</p>
       {action && <div className="mt-4">{action}</div>}

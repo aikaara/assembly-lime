@@ -1,5 +1,5 @@
 const VARIANT_STYLES = {
-  success: "bg-emerald-900/50 text-emerald-400 border-emerald-800",
+  success: "bg-lime-900/50 text-lime-400 border-lime-700",
   warning: "bg-amber-900/50 text-amber-400 border-amber-800",
   error: "bg-red-900/50 text-red-400 border-red-800",
   info: "bg-blue-900/50 text-blue-400 border-blue-800",

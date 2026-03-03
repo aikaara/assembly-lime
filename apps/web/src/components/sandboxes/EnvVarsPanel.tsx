@@ -219,7 +219,7 @@ export function EnvVarsPanel({ repos }: Props) {
                 setActiveSetId(null);
                 setMessage(null);
               }}
-              className="flex-1 rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 focus:border-emerald-500 focus:outline-none"
+              className="flex-1 rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 focus:border-lime-500 focus:outline-none"
             >
               <option value="">Select repository...</option>
               {repos.map((r) => (
@@ -240,7 +240,7 @@ export function EnvVarsPanel({ repos }: Props) {
           </div>
 
           {message && (
-            <p className={`text-xs ${message.type === "success" ? "text-emerald-400" : "text-red-400"}`}>
+            <p className={`text-xs ${message.type === "success" ? "text-lime-400" : "text-red-400"}`}>
               {message.text}
             </p>
           )}
@@ -255,7 +255,7 @@ export function EnvVarsPanel({ repos }: Props) {
                       onClick={() => setActiveSetId(s.id)}
                       className={`rounded-l-md px-3 py-1 text-xs transition-colors ${
                         activeSetId === s.id
-                          ? "bg-emerald-600/30 text-emerald-400 border border-emerald-500/40"
+                          ? "bg-lime-500/30 text-lime-400 border border-lime-500/40"
                           : "bg-zinc-700 text-zinc-400 border border-zinc-600 hover:bg-zinc-600"
                       }`}
                     >
@@ -283,14 +283,14 @@ export function EnvVarsPanel({ repos }: Props) {
                       value={newSetName}
                       onChange={(e) => setNewSetName(e.target.value)}
                       placeholder="Set name..."
-                      className="rounded-md bg-zinc-900 border border-zinc-700 px-2 py-1 text-xs text-zinc-200 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none w-32"
+                      className="rounded-md bg-zinc-900 border border-zinc-700 px-2 py-1 text-xs text-zinc-200 placeholder-zinc-500 focus:border-lime-500 focus:outline-none w-32"
                       onKeyDown={(e) => e.key === "Enter" && handleCreateSet()}
                       autoFocus
                     />
                     <button
                       onClick={handleCreateSet}
                       disabled={!newSetName.trim()}
-                      className="rounded-md bg-emerald-600 px-2 py-1 text-xs text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors"
+                      className="rounded-md bg-lime-500 px-2 py-1 text-xs text-zinc-950 hover:bg-lime-400 disabled:opacity-50 transition-colors"
                     >
                       Add
                     </button>
@@ -319,7 +319,7 @@ export function EnvVarsPanel({ repos }: Props) {
                         value={v.key}
                         onChange={(e) => updateVar(i, "key", e.target.value)}
                         placeholder="KEY_NAME"
-                        className="rounded-md bg-zinc-900 border border-zinc-700 px-2 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:border-emerald-500 focus:outline-none font-mono"
+                        className="rounded-md bg-zinc-900 border border-zinc-700 px-2 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:border-lime-500 focus:outline-none font-mono"
                       />
                       <div className="relative">
                         <input
@@ -327,7 +327,7 @@ export function EnvVarsPanel({ repos }: Props) {
                           value={v.value}
                           onChange={(e) => updateVar(i, "value", e.target.value)}
                           placeholder={v.dirty ? "enter value..." : "(encrypted)"}
-                          className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-2 py-1.5 pr-7 text-xs text-zinc-200 placeholder-zinc-600 focus:border-emerald-500 focus:outline-none font-mono"
+                          className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-2 py-1.5 pr-7 text-xs text-zinc-200 placeholder-zinc-600 focus:border-lime-500 focus:outline-none font-mono"
                         />
                         {v.isSecret && (
                           <button
@@ -373,7 +373,7 @@ export function EnvVarsPanel({ repos }: Props) {
                       <button
                         onClick={handleSave}
                         disabled={saving}
-                        className="flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1 text-xs text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors"
+                        className="flex items-center gap-1 rounded-md bg-lime-500 px-2.5 py-1 text-xs text-zinc-950 hover:bg-lime-400 disabled:opacity-50 transition-colors"
                       >
                         <Save className="h-3 w-3" />
                         {saving ? "Saving..." : "Save Changes"}

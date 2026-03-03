@@ -107,7 +107,7 @@ export function CodeSearchPage() {
             value={query}
             onChange={(e) => handleQueryChange(e.target.value)}
             placeholder="Search code across all repositories..."
-            className="w-full rounded-lg border border-zinc-700 bg-zinc-900 py-3 pl-11 pr-4 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-900 py-3 pl-11 pr-4 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-lime-500 focus:outline-none focus:ring-1 focus:ring-lime-500"
           />
         </div>
 
@@ -121,7 +121,7 @@ export function CodeSearchPage() {
                 debounceRef.current = setTimeout(() => doSearch(query), 100);
               }
             }}
-            className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 focus:border-emerald-500 focus:outline-none"
+            className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 focus:border-lime-500 focus:outline-none"
           >
             <option value="">All Languages</option>
             <option value="typescript">TypeScript</option>
@@ -142,7 +142,7 @@ export function CodeSearchPage() {
                 debounceRef.current = setTimeout(() => doSearch(query), 100);
               }
             }}
-            className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 focus:border-emerald-500 focus:outline-none"
+            className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 focus:border-lime-500 focus:outline-none"
           >
             <option value="">All Types</option>
             <option value="function">Functions</option>
@@ -158,7 +158,7 @@ export function CodeSearchPage() {
       <div className="mt-6 space-y-4">
         {searching && (
           <div className="flex items-center justify-center py-12">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-lime-500 border-t-transparent" />
             <span className="ml-3 text-sm text-zinc-400">Searching...</span>
           </div>
         )}

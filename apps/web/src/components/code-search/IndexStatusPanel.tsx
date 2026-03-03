@@ -17,7 +17,7 @@ interface IndexStatus {
 const STATUS_BADGE: Record<string, string> = {
   pending: "bg-zinc-700 text-zinc-300",
   indexing: "bg-yellow-900/50 text-yellow-300",
-  ready: "bg-emerald-900/50 text-emerald-300",
+  ready: "bg-lime-900/50 text-lime-300",
   failed: "bg-red-900/50 text-red-300",
 };
 
@@ -81,7 +81,7 @@ export function IndexStatusPanel({
             e.stopPropagation();
             handleReindexAll();
           }}
-          className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors px-2 py-1 rounded hover:bg-zinc-800"
+          className="text-xs text-lime-400 hover:text-lime-300 transition-colors px-2 py-1 rounded hover:bg-zinc-800"
         >
           Reindex All
         </button>

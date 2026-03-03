@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import * as Select from "@radix-ui/react-select";
-import { ChevronDown, Check, Send } from "lucide-react";
+import { ChevronDown, Check, Send, Monitor } from "lucide-react";
 import type { AgentProviderId, AgentMode, ProjectRepository } from "../../types";
 import { api } from "../../lib/api";
 
@@ -45,7 +45,7 @@ function SelectField<T extends string>({
                 className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-zinc-200 outline-none cursor-pointer data-[highlighted]:bg-zinc-700"
               >
                 <Select.ItemIndicator>
-                  <Check className="h-3.5 w-3.5 text-emerald-400" />
+                  <Check className="h-3.5 w-3.5 text-lime-400" />
                 </Select.ItemIndicator>
                 <Select.ItemText>{item.label}</Select.ItemText>
               </Select.Item>
@@ -103,66 +103,77 @@ export function PromptPanel({
         fix it.
       </p>
 
-      <textarea
-        value={prompt}
-        onChange={(e) => setPrompt(e.target.value)}
-        placeholder="Describe a feature, bug, or task..."
-        className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm text-zinc-100 placeholder-zinc-600 resize-none outline-none focus:border-emerald-600 transition-colors"
-        rows={4}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-            handleSubmit();
-          }
-        }}
-      />
-
-      {/* Quick mode chips */}
-      <div className="mt-3 flex flex-wrap gap-2">
-        {MODES.map((m) => (
-          <button
-            key={m.value}
-            type="button"
-            onClick={() => setMode(m.value)}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-              mode === m.value
-                ? "bg-emerald-900/50 text-emerald-400 border border-emerald-700"
-                : "bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700"
-            }`}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Controls row */}
-      <div className="mt-4 flex items-center gap-3">
-        <SelectField
-          value={provider}
-          onValueChange={setProvider}
-          items={PROVIDERS}
-          placeholder="Provider"
+      {/* Input area with bottom toolbar (matching mockup) */}
+      <div className="rounded-xl border border-zinc-700 bg-zinc-900 overflow-hidden focus-within:border-lime-500/50 transition-colors">
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="Describe a feature, bug, or task..."
+          className="w-full resize-none bg-transparent px-4 py-3 text-sm text-zinc-100 placeholder-zinc-600 outline-none"
+          rows={3}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              handleSubmit();
+            }
+          }}
         />
 
-        {repos.length > 0 && (
-          <SelectField
-            value={selectedRepoId}
-            onValueChange={setSelectedRepoId}
-            items={repoItems}
-            placeholder="Repository"
-          />
-        )}
+        {/* Bottom toolbar */}
+        <div className="flex items-center justify-between px-3 py-2 border-t border-zinc-800/50">
+          <div className="flex items-center gap-1.5">
+            {/* Mode chips */}
+            {MODES.map((m) => (
+              <button
+                key={m.value}
+                type="button"
+                onClick={() => setMode(m.value)}
+                className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  mode === m.value
+                    ? "bg-violet-500/15 text-violet-400 border border-violet-500/20"
+                    : "text-zinc-500 hover:bg-zinc-800 hover:text-zinc-400"
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
 
-        <div className="flex-1" />
+            <div className="w-px h-4 bg-zinc-800 mx-1" />
 
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={!prompt.trim() || disabled}
-          className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          <Send className="h-4 w-4" />
-          Run Agent
-        </button>
+            {/* Model selector */}
+            <button
+              type="button"
+              className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] text-zinc-500 hover:bg-zinc-800 hover:text-zinc-400 transition-colors"
+              onClick={() =>
+                setProvider(provider === "claude" ? "codex" : "claude")
+              }
+            >
+              <Monitor className="h-3 w-3" />
+              {PROVIDERS.find((p) => p.value === provider)?.label}
+              <ChevronDown className="h-3 w-3" />
+            </button>
+
+            {repos.length > 0 && (
+              <>
+                <div className="w-px h-4 bg-zinc-800 mx-1" />
+                <SelectField
+                  value={selectedRepoId}
+                  onValueChange={setSelectedRepoId}
+                  items={repoItems}
+                  placeholder="Repository"
+                />
+              </>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={!prompt.trim() || disabled}
+            className="rounded-lg bg-lime-500 px-3 py-1 text-xs font-medium text-zinc-950 hover:bg-lime-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            Send
+          </button>
+        </div>
       </div>
     </div>
   );

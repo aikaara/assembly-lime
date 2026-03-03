@@ -9,7 +9,7 @@ type Props = {
 
 const statusColors: Record<string, string> = {
   creating: "bg-amber-500",
-  running: "bg-emerald-500",
+  running: "bg-lime-500",
   stopped: "bg-zinc-500",
   destroying: "bg-red-400",
   destroyed: "bg-zinc-600",
@@ -52,7 +52,7 @@ export function SandboxCard({ sandbox, onDestroy, onViewLogs }: Props) {
               href={sandbox.sandboxUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1 rounded-md bg-emerald-600/20 px-2.5 py-1 text-xs text-emerald-400 hover:bg-emerald-600/30 transition-colors"
+              className="flex items-center gap-1 rounded-md bg-lime-500/20 px-2.5 py-1 text-xs text-lime-400 hover:bg-lime-500/30 transition-colors"
             >
               <ExternalLink className="h-3 w-3" />
               Open
@@ -83,7 +83,7 @@ export function SandboxCard({ sandbox, onDestroy, onViewLogs }: Props) {
           </span>
         ))}
         {sandbox.sandboxUrl && (
-          <span className="text-xs text-emerald-500/70 bg-zinc-700 rounded px-1.5 py-0.5 truncate max-w-xs">
+          <span className="text-xs text-lime-500/70 bg-zinc-700 rounded px-1.5 py-0.5 truncate max-w-xs">
             {sandbox.sandboxUrl}
           </span>
         )}

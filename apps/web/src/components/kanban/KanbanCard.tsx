@@ -59,7 +59,7 @@ export function KanbanCard({
           </span>
         )}
         {ticket.prUrl && (
-          <GitPullRequest className="h-3.5 w-3.5 text-emerald-500" />
+          <GitPullRequest className="h-3.5 w-3.5 text-lime-500" />
         )}
         <div className="flex-1" />
         {ticket.assignee && (

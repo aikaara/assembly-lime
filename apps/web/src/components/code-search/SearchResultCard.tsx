@@ -31,7 +31,7 @@ export function SearchResultCard({ result }: { result: SearchResult }) {
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="inline-flex items-center rounded-md bg-emerald-900/50 px-2 py-0.5 text-xs font-medium text-emerald-300">
+            <span className="inline-flex items-center rounded-md bg-lime-900/50 px-2 py-0.5 text-xs font-medium text-lime-300">
               {result.repoFullName}
             </span>
             <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${chunkBadgeColor}`}>
@@ -51,7 +51,7 @@ export function SearchResultCard({ result }: { result: SearchResult }) {
             </p>
           )}
         </div>
-        <span className="shrink-0 text-xs font-mono text-emerald-400">{simPct}%</span>
+        <span className="shrink-0 text-xs font-mono text-lime-400">{simPct}%</span>
       </div>
 
       <pre className="mt-2 overflow-x-auto rounded-md bg-zinc-950 p-3 text-xs font-mono text-zinc-300 max-h-64 overflow-y-auto">

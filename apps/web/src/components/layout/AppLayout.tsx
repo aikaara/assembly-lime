@@ -1,8 +1,13 @@
 import { Outlet } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
+import { CommandPalette } from "../CommandPalette";
+import { KeyboardShortcutHelp } from "../KeyboardShortcutHelp";
+import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 
 export function AppLayout() {
+  useKeyboardShortcuts();
+
   return (
     <div className="flex h-full">
       <Sidebar />
@@ -12,6 +17,8 @@ export function AppLayout() {
           <Outlet />
         </main>
       </div>
+      <CommandPalette />
+      <KeyboardShortcutHelp />
     </div>
   );
 }

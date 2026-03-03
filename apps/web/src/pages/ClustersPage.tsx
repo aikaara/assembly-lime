@@ -100,7 +100,7 @@ export function ClustersPage() {
   }
 
   const statusColors: Record<string, string> = {
-    connected: "bg-emerald-500",
+    connected: "bg-lime-500",
     pending: "bg-amber-500",
     error: "bg-red-500",
     disconnected: "bg-zinc-500",
@@ -116,7 +116,7 @@ export function ClustersPage() {
         <h1 className="text-xl font-semibold text-zinc-100">K8s Clusters</h1>
         <button
           onClick={() => setShowCreate(!showCreate)}
-          className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition-colors"
+          className="flex items-center gap-2 rounded-lg bg-lime-500 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-lime-400 transition-colors"
         >
           <Plus className="h-4 w-4" />
           Register Cluster
@@ -132,14 +132,14 @@ export function ClustersPage() {
               placeholder="Cluster name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
+              className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-lime-500 focus:outline-none"
             />
             <textarea
               placeholder="Kubeconfig YAML (paste your ~/.kube/config here)"
               value={kubeconfig}
               onChange={(e) => handleKubeconfigChange(e.target.value)}
               rows={4}
-              className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none font-mono"
+              className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-lime-500 focus:outline-none font-mono"
             />
             {kubeconfigDetectedUrl && !apiUrl && (
               <p className="text-xs text-zinc-500">
@@ -151,14 +151,14 @@ export function ClustersPage() {
               placeholder="API URL override (auto-detected from kubeconfig)"
               value={apiUrl}
               onChange={(e) => setApiUrl(e.target.value)}
-              className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-emerald-500 focus:outline-none"
+              className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:border-lime-500 focus:outline-none"
             />
           </div>
           <div className="flex gap-2">
             <button
               onClick={handleCreate}
               disabled={creating || !canSubmit}
-              className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm text-white hover:bg-emerald-500 disabled:opacity-50 transition-colors"
+              className="rounded-md bg-lime-500 px-3 py-1.5 text-sm text-zinc-950 hover:bg-lime-400 disabled:opacity-50 transition-colors"
             >
               {creating ? "Registering..." : "Register"}
             </button>
