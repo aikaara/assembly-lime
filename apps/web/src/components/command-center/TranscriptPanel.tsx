@@ -145,9 +145,11 @@ export function TranscriptPanel({
                   placeholder={
                     runStatus === "awaiting_followup"
                       ? "Send a follow-up message..."
-                      : isTerminal
-                        ? "Send a message to continue..."
-                        : "Send a message..."
+                      : runStatus === "awaiting_approval"
+                        ? "Send a message to adjust before approving..."
+                        : isTerminal
+                          ? "Send a follow-up to resume the agent..."
+                          : "Send a message..."
                   }
                   rows={1}
                   className="flex-1 resize-none bg-transparent px-4 py-3 text-sm text-zinc-200 placeholder:text-zinc-500 focus:outline-none"
@@ -172,13 +174,19 @@ export function TranscriptPanel({
                   }`}
                 />
                 <span className="text-[10px] text-zinc-600">
-                  {runStatus === "awaiting_followup"
-                    ? "Agent is waiting for your input"
-                    : connectionState === "connected"
-                      ? "Connected"
-                      : connectionState === "connecting"
-                        ? "Reconnecting..."
-                        : "Disconnected"}
+                  {runStatus === "queued" && connectionState !== "connected"
+                    ? "Resuming agent..."
+                    : runStatus === "awaiting_followup"
+                      ? "Agent is idle — send a message to continue"
+                      : runStatus === "awaiting_approval"
+                        ? "Waiting for approval — you can also send a message"
+                        : isTerminal
+                          ? "Run finished — send a message to resume"
+                          : connectionState === "connected"
+                            ? "Connected"
+                            : connectionState === "connecting"
+                              ? "Reconnecting..."
+                              : "Disconnected"}
                 </span>
               </div>
             </div>

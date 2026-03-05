@@ -31,7 +31,7 @@ function statusBadgeVariant(
   if (status === "failed") return "error";
   if (status === "running") return "info";
   if (status === "awaiting_approval") return "warning";
-  if (status === "awaiting_followup") return "success";
+  if (status === "awaiting_followup") return "info";
   return "neutral";
 }
 

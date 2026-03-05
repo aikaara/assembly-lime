@@ -319,6 +319,8 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<RunResu
       cwd,
       repos: repoPaths.length > 0 ? repoPaths : undefined,
       preRunContext,
+      isContinuation: payload.isContinuation,
+      workingBranch: branchName,
     });
 
     // 8. Create agent (restore session if available)
@@ -427,7 +429,7 @@ export async function runUnifiedAgent(payload: AgentJobPayload): Promise<RunResu
     // Escalates to 15 min idle timeout after the first follow-up is processed.
 
     const FOLLOWUP_POLL_INTERVAL_MS = 1_000;
-    const FOLLOWUP_INITIAL_IDLE_MS = 30_000; // 30s before any follow-up
+    const FOLLOWUP_INITIAL_IDLE_MS = 2 * 60_000; // 2 min before any follow-up
     const FOLLOWUP_ACTIVE_IDLE_MS = 15 * 60 * 1_000; // 15 min after a follow-up
     const TRIGGER_BUDGET_RESERVE_MS = 120_000; // reserve 2 min for post-run
     const STATUS_CHECK_INTERVAL = 10; // check run status every 10 polls

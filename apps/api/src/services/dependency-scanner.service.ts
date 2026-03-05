@@ -1,5 +1,4 @@
 import { eq, and } from "drizzle-orm";
-import Anthropic from "@anthropic-ai/sdk";
 import type { Db } from "@assembly-lime/shared/db";
 import {
   repositories,
@@ -16,42 +15,31 @@ const log = childLogger({ module: "dependency-scanner" });
 
 const GITHUB_API = "https://api.github.com";
 
-const DEPENDENCY_FILES = [
-  "package.json",
-  "Gemfile",
-  "requirements.txt",
-  "setup.py",
-  "pyproject.toml",
-  "go.mod",
-  "Cargo.toml",
-  "pom.xml",
-  "build.gradle",
-  "composer.json",
-  "Podfile",
-  "pubspec.yaml",
-  "docker-compose.yml",
-  "docker-compose.yaml",
-  "Dockerfile",
-  ".gitmodules",
-];
+/** Noop logger for non-queue callers */
+const noopLog: JobLogger = async () => {};
+const noopProgress = async (_: number) => {};
 
 type RepoManifest = {
   repoId: number;
   fullName: string;
   owner: string;
   name: string;
-  files: { path: string; content: string }[];
+  packageJson: PackageJsonDeps | null;
+  dockerRefs: string[];
+  hasSubmodules: boolean;
 };
 
-/** Noop logger for non-queue callers */
-const noopLog: JobLogger = async () => {};
-const noopProgress = async (_: number) => {};
+type PackageJsonDeps = {
+  name?: string;
+  dependencies: Record<string, string>;
+  devDependencies: Record<string, string>;
+};
 
 async function fetchFileContent(
   token: string,
   owner: string,
   repo: string,
-  path: string
+  path: string,
 ): Promise<string | null> {
   try {
     const res = await fetch(
@@ -62,7 +50,7 @@ async function fetchFileContent(
           Accept: "application/vnd.github.raw+json",
           "X-GitHub-Api-Version": "2022-11-28",
         },
-      }
+      },
     );
     if (!res.ok) return null;
     return res.text();
@@ -71,24 +59,27 @@ async function fetchFileContent(
   }
 }
 
+/**
+ * Fetch only the files we actually need — package.json, Dockerfile, docker-compose.yml, .gitmodules.
+ * All fetches within a repo run in parallel.
+ */
 async function gatherRepoManifests(
   db: Db,
   tenantId: number,
   jobLog: JobLogger,
-  updateProgress: (pct: number) => Promise<void>
+  updateProgress: (pct: number) => Promise<void>,
 ): Promise<RepoManifest[]> {
   const repos = await db
     .select()
     .from(repositories)
     .where(
-      and(eq(repositories.tenantId, tenantId), eq(repositories.isEnabled, true))
+      and(eq(repositories.tenantId, tenantId), eq(repositories.isEnabled, true)),
     );
 
   if (repos.length === 0) return [];
 
   await jobLog(`Found ${repos.length} enabled repositories`);
 
-  // Get first active connector for token
   const [connector] = await db
     .select()
     .from(connectors)
@@ -103,146 +94,181 @@ async function gatherRepoManifests(
   const token = getConnectorToken(connector);
   const manifests: RepoManifest[] = [];
 
-  for (let i = 0; i < repos.length; i++) {
-    const repo = repos[i]!;
-    const files: { path: string; content: string }[] = [];
+  // Fetch all repos in parallel (batched to avoid rate limits)
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < repos.length; i += BATCH_SIZE) {
+    const batch = repos.slice(i, i + BATCH_SIZE);
 
-    await jobLog(`[${i + 1}/${repos.length}] Fetching manifests for ${repo.fullName}`);
+    const results = await Promise.all(
+      batch.map(async (repo) => {
+        // Fetch package.json, Dockerfile, docker-compose.yml, .gitmodules in parallel
+        const [pkgRaw, dockerfile, compose, composeYml, gitmodules] = await Promise.all([
+          fetchFileContent(token, repo.owner, repo.name, "package.json"),
+          fetchFileContent(token, repo.owner, repo.name, "Dockerfile"),
+          fetchFileContent(token, repo.owner, repo.name, "docker-compose.yml"),
+          fetchFileContent(token, repo.owner, repo.name, "docker-compose.yaml"),
+          fetchFileContent(token, repo.owner, repo.name, ".gitmodules"),
+        ]);
 
-    for (const filePath of DEPENDENCY_FILES) {
-      const content = await fetchFileContent(token, repo.owner, repo.name, filePath);
-      if (content) {
-        files.push({ path: filePath, content: content.slice(0, 8192) });
-      }
-    }
+        let packageJson: PackageJsonDeps | null = null;
+        if (pkgRaw) {
+          try {
+            const parsed = JSON.parse(pkgRaw);
+            packageJson = {
+              name: parsed.name,
+              dependencies: parsed.dependencies ?? {},
+              devDependencies: parsed.devDependencies ?? {},
+            };
+          } catch {
+            // malformed package.json
+          }
+        }
 
-    await jobLog(`  → ${repo.fullName}: found ${files.length} manifest file(s)${files.length > 0 ? ` (${files.map(f => f.path).join(", ")})` : ""}`);
+        // Extract image/service references from Docker files
+        const dockerRefs: string[] = [];
+        if (dockerfile) {
+          const fromMatches = dockerfile.matchAll(/^FROM\s+([^\s]+)/gm);
+          for (const m of fromMatches) dockerRefs.push(m[1]!);
+        }
+        const composeContent = compose || composeYml;
+        if (composeContent) {
+          const imageMatches = composeContent.matchAll(/image:\s*['"]?([^\s'"]+)/g);
+          for (const m of imageMatches) dockerRefs.push(m[1]!);
+        }
 
-    manifests.push({
-      repoId: repo.id,
-      fullName: repo.fullName,
-      owner: repo.owner,
-      name: repo.name,
-      files,
-    });
+        return {
+          repoId: repo.id,
+          fullName: repo.fullName,
+          owner: repo.owner,
+          name: repo.name,
+          packageJson,
+          dockerRefs,
+          hasSubmodules: !!gitmodules,
+        } satisfies RepoManifest;
+      }),
+    );
 
-    // Progress: 5% – 60% for fetching manifests
-    const fetchProgress = 5 + Math.round(((i + 1) / repos.length) * 55);
+    manifests.push(...results);
+
+    const fetchProgress = 5 + Math.round(((i + batch.length) / repos.length) * 55);
     await updateProgress(fetchProgress);
+    await jobLog(`Fetched manifests for ${Math.min(i + BATCH_SIZE, repos.length)}/${repos.length} repos`);
   }
-
-  const totalFiles = manifests.reduce((sum, m) => sum + m.files.length, 0);
-  await jobLog(`Manifest collection complete: ${manifests.length} repos, ${totalFiles} files total`);
 
   return manifests;
 }
 
-const SCAN_SYSTEM_PROMPT = `You are a dependency analysis agent. You are given a list of repositories belonging to the same organization, along with their dependency manifests (package.json, Gemfile, Dockerfile, etc).
+/**
+ * Deterministic cross-repo dependency detection — no AI needed.
+ *
+ * Checks:
+ * 1. package.json deps referencing another repo's package name or GitHub URL
+ * 2. Docker image/FROM references matching repo names
+ * 3. Git submodule presence (flagged but can't resolve targets without parsing .gitmodules content)
+ */
+function detectCrossRepoDeps(manifests: RepoManifest[]): DependencyEdge[] {
+  const edges: DependencyEdge[] = [];
+  const seen = new Set<string>();
 
-Your task: identify cross-repository dependencies where one repo depends on or references another repo in the list.
+  // Build lookup: package name → repoId, repo name → repoId
+  const packageNameToRepo = new Map<string, number>();
+  const repoNameToRepo = new Map<string, number>();
+  const repoFullNameToRepo = new Map<string, number>();
 
-Dependency types:
-- "package": Repo A lists Repo B (or its published package) as a dependency
-- "api_consumer": Repo A consumes an API that Repo B provides (e.g. shared API URLs, client SDK usage)
-- "sdk_usage": Repo A uses an SDK published by Repo B
-- "docker_ref": Repo A references Repo B in Docker configs (e.g. docker-compose service names, Dockerfile base images)
-- "submodule": Repo A includes Repo B as a git submodule
-- "shared_config": Repos share configuration files or reference common config patterns
-
-Return ONLY a JSON array. Each element:
-{
-  "source": "owner/repo-name",
-  "target": "owner/repo-name",
-  "type": "package|api_consumer|sdk_usage|docker_ref|submodule|shared_config",
-  "confidence": 0-100,
-  "detectedFrom": "path/to/file",
-  "metadata": { "packageName": "...", "version": "...", "notes": "..." }
-}
-
-Rules:
-- source depends on target (source → target means source uses/imports/references target)
-- Only include dependencies between repos in the provided list
-- Be precise with confidence: 90+ for exact package name matches, 60-89 for likely matches, below 60 for heuristic guesses
-- If no cross-repo dependencies are found, return an empty array: []
-- Return ONLY the JSON array, no markdown fencing, no explanation`;
-
-async function analyzeDependenciesWithClaude(
-  manifests: RepoManifest[],
-  jobLog: JobLogger,
-  updateProgress: (pct: number) => Promise<void>
-): Promise<
-  Array<{
-    source: string;
-    target: string;
-    type: string;
-    confidence: number;
-    detectedFrom: string;
-    metadata: Record<string, unknown>;
-  }>
-> {
-  const anthropic = new Anthropic();
-
-  const repoSummaries = manifests.map((m) => ({
-    fullName: m.fullName,
-    files: m.files.map((f) => ({
-      path: f.path,
-      content: f.content,
-    })),
-  }));
-
-  const userMessage = `Here are the repositories and their dependency manifests:\n\n${JSON.stringify(repoSummaries, null, 2)}`;
-  const inputChars = userMessage.length;
-
-  await jobLog(`Calling Claude API to analyze dependencies (${Math.round(inputChars / 1024)}KB context)...`);
-  await updateProgress(65);
-
-  const response = await anthropic.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 4096,
-    system: SCAN_SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userMessage }],
-  });
-
-  const usage = response.usage;
-  await jobLog(`Claude API response received — input_tokens: ${usage.input_tokens}, output_tokens: ${usage.output_tokens}`);
-  await updateProgress(80);
-
-  const text =
-    response.content[0]?.type === "text" ? response.content[0].text : "";
-
-  try {
-    const parsed = JSON.parse(text);
-    if (Array.isArray(parsed)) {
-      await jobLog(`Claude returned ${parsed.length} dependency edge(s)`);
-      return parsed;
+  for (const m of manifests) {
+    if (m.packageJson?.name) {
+      packageNameToRepo.set(m.packageJson.name, m.repoId);
     }
-    await jobLog("Claude returned non-array JSON, treating as empty");
-    return [];
-  } catch {
-    // Try to extract JSON array from the response
-    const match = text.match(/\[[\s\S]*\]/);
-    if (match) {
-      try {
-        const parsed = JSON.parse(match[0]);
-        await jobLog(`Extracted ${parsed.length} dependency edge(s) from Claude response`);
-        return parsed;
-      } catch {
-        await jobLog("Failed to parse extracted JSON from Claude response");
-        return [];
+    repoNameToRepo.set(m.name.toLowerCase(), m.repoId);
+    repoFullNameToRepo.set(m.fullName.toLowerCase(), m.repoId);
+  }
+
+  for (const source of manifests) {
+    if (!source.packageJson) continue;
+
+    const allDeps = {
+      ...source.packageJson.dependencies,
+      ...source.packageJson.devDependencies,
+    };
+
+    for (const [depName, depVersion] of Object.entries(allDeps)) {
+      // 1. Direct package name match
+      const targetByName = packageNameToRepo.get(depName);
+      if (targetByName && targetByName !== source.repoId) {
+        const key = `${source.repoId}-${targetByName}-package`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          edges.push({
+            sourceRepositoryId: source.repoId,
+            targetRepositoryId: targetByName,
+            dependencyType: "package",
+            confidence: 95,
+            detectedFrom: "package.json",
+            metadata: { packageName: depName, version: depVersion },
+          });
+        }
+        continue;
+      }
+
+      // 2. GitHub URL in version (github:org/repo, git+https://...)
+      const githubMatch = depVersion.match(
+        /(?:github:|git\+https?:\/\/github\.com\/)([^#@/]+\/[^#@]+)/,
+      );
+      if (githubMatch) {
+        const refName = githubMatch[1]!.replace(/\.git$/, "").toLowerCase();
+        const targetByUrl = repoFullNameToRepo.get(refName);
+        if (targetByUrl && targetByUrl !== source.repoId) {
+          const key = `${source.repoId}-${targetByUrl}-package`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            edges.push({
+              sourceRepositoryId: source.repoId,
+              targetRepositoryId: targetByUrl,
+              dependencyType: "package",
+              confidence: 90,
+              detectedFrom: "package.json",
+              metadata: { packageName: depName, version: depVersion },
+            });
+          }
+        }
       }
     }
-    await jobLog("Claude response was not parseable JSON — no dependencies extracted");
-    return [];
+
+    // 3. Docker references matching repo names
+    for (const ref of source.dockerRefs) {
+      const refLower = ref.toLowerCase();
+      for (const m of manifests) {
+        if (m.repoId === source.repoId) continue;
+        if (
+          refLower.includes(m.name.toLowerCase()) ||
+          refLower.includes(m.fullName.toLowerCase())
+        ) {
+          const key = `${source.repoId}-${m.repoId}-docker_ref`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            edges.push({
+              sourceRepositoryId: source.repoId,
+              targetRepositoryId: m.repoId,
+              dependencyType: "docker_ref",
+              confidence: 70,
+              detectedFrom: "Dockerfile/docker-compose",
+              metadata: { imageRef: ref },
+            });
+          }
+        }
+      }
+    }
   }
+
+  return edges;
 }
 
 export async function scanAllDependencies(
   db: Db,
   tenantId: number,
   jobLog: JobLogger = noopLog,
-  updateProgress: (pct: number) => Promise<void> = noopProgress
+  updateProgress: (pct: number) => Promise<void> = noopProgress,
 ) {
-  // Create scan record
   const [scan] = await db
     .insert(dependencyScans)
     .values({ tenantId, status: "pending" })
@@ -252,7 +278,6 @@ export async function scanAllDependencies(
   await jobLog(`Created scan record #${scanId}`);
 
   try {
-    // Update to running
     await db
       .update(dependencyScans)
       .set({ status: "running", startedAt: new Date() })
@@ -261,95 +286,37 @@ export async function scanAllDependencies(
     await jobLog("Scan status → running");
     await updateProgress(5);
 
-    // Gather manifests
+    // Gather manifests (parallel fetches)
     const manifests = await gatherRepoManifests(db, tenantId, jobLog, updateProgress);
 
     if (manifests.length === 0) {
       await jobLog("No enabled repos found — scan complete with 0 dependencies");
       await db
         .update(dependencyScans)
-        .set({
-          status: "completed",
-          reposScanned: 0,
-          depsFound: 0,
-          completedAt: new Date(),
-        })
+        .set({ status: "completed", reposScanned: 0, depsFound: 0, completedAt: new Date() })
         .where(eq(dependencyScans.id, scanId));
       return { scanId, reposScanned: 0, depsFound: 0 };
     }
 
-    // Check if any repo has manifest files (skip AI if none)
-    const totalFiles = manifests.reduce((sum, m) => sum + m.files.length, 0);
-    if (totalFiles === 0) {
-      await jobLog("No dependency manifest files found in any repo — skipping AI analysis");
-      await db
-        .update(dependencyScans)
-        .set({
-          status: "completed",
-          reposScanned: manifests.length,
-          depsFound: 0,
-          completedAt: new Date(),
-        })
-        .where(eq(dependencyScans.id, scanId));
-      return { scanId, reposScanned: manifests.length, depsFound: 0 };
-    }
+    await updateProgress(65);
 
-    // Analyze with Claude
-    const rawDeps = await analyzeDependenciesWithClaude(manifests, jobLog, updateProgress);
+    // Deterministic cross-repo detection (no AI call)
+    const edges = detectCrossRepoDeps(manifests);
+    await jobLog(`Detected ${edges.length} cross-repo dependency edge(s)`);
+    await updateProgress(80);
 
-    // Map fullName → repoId for resolution
-    const nameToId = new Map<string, number>();
-    for (const m of manifests) {
-      nameToId.set(m.fullName, m.repoId);
-      nameToId.set(m.name, m.repoId);
-    }
-
-    // Convert raw deps to DB format
-    const edges: DependencyEdge[] = [];
-    let skipped = 0;
-    for (const dep of rawDeps) {
-      const sourceId = nameToId.get(dep.source);
-      const targetId = nameToId.get(dep.target);
-      if (!sourceId || !targetId) {
-        skipped++;
-        continue;
-      }
-      if (sourceId === targetId) {
-        skipped++;
-        continue;
-      }
-
-      edges.push({
-        sourceRepositoryId: sourceId,
-        targetRepositoryId: targetId,
-        dependencyType: dep.type,
-        confidence: Math.max(0, Math.min(100, dep.confidence)),
-        detectedFrom: dep.detectedFrom ?? null,
-        metadata: dep.metadata ?? {},
-      });
-    }
-
-    if (skipped > 0) {
-      await jobLog(`Skipped ${skipped} unresolvable/self-referencing edge(s)`);
-    }
-
-    await jobLog(`Resolved ${edges.length} valid dependency edge(s)`);
-    await updateProgress(85);
-
-    // Log each edge
     for (const edge of edges) {
-      const srcName = manifests.find(m => m.repoId === edge.sourceRepositoryId)?.fullName ?? "?";
-      const tgtName = manifests.find(m => m.repoId === edge.targetRepositoryId)?.fullName ?? "?";
+      const srcName = manifests.find((m) => m.repoId === edge.sourceRepositoryId)?.fullName ?? "?";
+      const tgtName = manifests.find((m) => m.repoId === edge.targetRepositoryId)?.fullName ?? "?";
       await jobLog(`  ${srcName} → ${tgtName} [${edge.dependencyType}] (confidence: ${edge.confidence}%)`);
     }
 
-    // Clear old dependencies and store new ones
+    // Store results
     await jobLog("Clearing old dependencies and storing new edges...");
     await clearDependencies(db, tenantId);
     const depsStored = await storeDependencies(db, tenantId, edges);
     await updateProgress(95);
 
-    // Update scan to completed
     await db
       .update(dependencyScans)
       .set({
@@ -364,7 +331,7 @@ export async function scanAllDependencies(
 
     log.info(
       { tenantId, scanId, reposScanned: manifests.length, depsFound: depsStored },
-      "dependency scan completed"
+      "dependency scan completed",
     );
 
     return { scanId, reposScanned: manifests.length, depsFound: depsStored };
@@ -372,11 +339,7 @@ export async function scanAllDependencies(
     const message = err instanceof Error ? err.message : String(err);
     await db
       .update(dependencyScans)
-      .set({
-        status: "failed",
-        errorMessage: message,
-        completedAt: new Date(),
-      })
+      .set({ status: "failed", errorMessage: message, completedAt: new Date() })
       .where(eq(dependencyScans.id, scanId));
 
     await jobLog(`SCAN FAILED: ${message}`);

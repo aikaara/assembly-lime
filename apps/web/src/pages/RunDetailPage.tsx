@@ -30,6 +30,7 @@ const LIVE_STATUSES: AgentRunStatus[] = [
   "running",
   "awaiting_followup",
   "awaiting_approval",
+  "awaiting_env_vars",
 ];
 
 export function RunDetailPage() {

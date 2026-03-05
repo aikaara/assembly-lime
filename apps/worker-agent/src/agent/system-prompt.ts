@@ -1,29 +1,34 @@
 /**
  * System prompt builder for the unified agent worker.
- * Adapted from pi-coding-agent's system-prompt.ts for server context.
+ *
+ * NOTE: The `resolvedPrompt` field (from the API) already contains:
+ *   provider preamble + mode prompt + instruction layers + user prompt
+ * (via packages/shared/src/prompts/index.ts → resolvePrompt()).
+ *
+ * This builder adds runtime context that only the worker knows:
+ *   tools, working directory, repo layout, pre-run RAG context.
  */
 
 import type { AgentMode } from "@assembly-lime/shared";
 
-/** Tool descriptions for system prompt */
 const toolDescriptions: Record<string, string> = {
-	read: "Read file contents",
-	bash: "Execute bash commands",
-	edit: "Make surgical edits to files (find exact text and replace)",
-	write: "Create or overwrite files",
-	grep: "Search file contents for patterns (respects .gitignore)",
+	read: "Read file contents (prefer over cat/head/tail)",
+	bash: "Execute shell commands in the sandbox",
+	edit: "Surgical text replacement — old_string must match exactly",
+	write: "Create new files or complete rewrites (read first if file exists)",
+	grep: "Search file contents with regex (respects .gitignore)",
 	find: "Find files by glob pattern (respects .gitignore)",
 	ls: "List directory contents",
 	git_status: "Show git working tree status",
-	git_diff: "Show git diff (staged and unstaged)",
-	git_commit_push: "Stage, commit, and push changes",
-	create_pr: "Create a GitHub pull request",
-	subagent: "Spawn specialized sub-agents for complex tasks",
-	create_tasks: "Create implementation tasks as tickets on the project board",
-	update_task_status: "Update a task's status to in_progress or completed",
-	semantic_search: "Search across all indexed repositories using natural language to find relevant code",
-	find_similar_code: "Find code that is structurally or semantically similar to a given snippet",
-	find_usages: "Find where a symbol (function, class, type) is used across all repositories",
+	git_diff: "Show staged + unstaged diffs",
+	git_commit_push: "Stage all, commit, and push",
+	create_pr: "Create a GitHub pull request from the working branch",
+	subagent: "Spawn a sub-agent for parallel or isolated work",
+	create_tasks: "Create implementation tickets on the project board",
+	update_task_status: "Mark a task as in_progress or completed",
+	semantic_search: "Natural-language search across all indexed repos",
+	find_similar_code: "Find structurally similar code to a given snippet",
+	find_usages: "Find where a symbol is used across all repositories",
 };
 
 export interface BuildSystemPromptOptions {
@@ -33,10 +38,12 @@ export interface BuildSystemPromptOptions {
 	cwd: string;
 	repos?: Array<{ name: string; path: string; primary: boolean }>;
 	preRunContext?: string;
+	isContinuation?: boolean;
+	workingBranch?: string;
 }
 
 export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
-	const { mode, resolvedPrompt, selectedTools, cwd, repos, preRunContext } = options;
+	const { mode, resolvedPrompt, selectedTools, cwd, repos, preRunContext, isContinuation, workingBranch } = options;
 
 	const now = new Date();
 	const dateTime = now.toLocaleString("en-US", {
@@ -46,152 +53,136 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		day: "numeric",
 		hour: "2-digit",
 		minute: "2-digit",
-		second: "2-digit",
 		timeZoneName: "short",
 	});
 
-	// Build tools list
+	// Available tools
 	const tools = selectedTools.filter((t) => t in toolDescriptions);
 	const toolsList = tools.length > 0
-		? tools.map((t) => `- ${t}: ${toolDescriptions[t]}`).join("\n")
+		? tools.map((t) => `- **${t}** — ${toolDescriptions[t]}`).join("\n")
 		: "(none)";
 
-	// Build guidelines based on mode and available tools
-	const guidelines: string[] = [];
+	// Mode-specific operational rules (NOT the full mode prompt — that's in resolvedPrompt)
+	const operationalRules = getOperationalRules(mode, tools);
 
-	const hasBash = tools.includes("bash");
-	const hasEdit = tools.includes("edit");
-	const hasWrite = tools.includes("write");
-	const hasGrep = tools.includes("grep");
-	const hasFind = tools.includes("find");
-	const hasLs = tools.includes("ls");
-	const hasRead = tools.includes("read");
+	const parts: string[] = [];
 
-	if (hasBash && (hasGrep || hasFind || hasLs)) {
-		guidelines.push("Prefer grep/find/ls tools over bash for file exploration (faster, respects .gitignore)");
+	// Resolved prompt already contains: preamble + mode prompt + instruction layers + user prompt
+	if (resolvedPrompt) {
+		parts.push(resolvedPrompt);
 	}
 
-	if (hasRead && hasEdit) {
-		guidelines.push("Use read to examine files before editing. Do not use cat or sed.");
-	}
-
-	if (hasEdit) {
-		guidelines.push("Use edit for precise changes (old text must match exactly)");
-	}
-
-	if (hasWrite) {
-		guidelines.push("Use write only for new files or complete rewrites");
-	}
-
-	if (hasEdit || hasWrite) {
-		guidelines.push("When summarizing your actions, output plain text directly — do NOT use bash to display what you did");
-	}
-
-	guidelines.push("Be concise in your responses");
-	guidelines.push("Show file paths clearly when working with files");
-
-	// Mode-specific preamble
-	const modePreamble = getModePreamble(mode);
-
-	const guidelinesText = guidelines.map((g) => `- ${g}`).join("\n");
-
-	let prompt = `${modePreamble}`;
-
-	// Inject pre-run context from semantic code search (before tools list)
+	// Pre-run RAG context
 	if (preRunContext) {
-		prompt += `
+		parts.push(`# Relevant Code Context
 
-# Relevant Code Context (from org-wide semantic search)
+The following code was found relevant via org-wide semantic search. Use as starting context — run semantic_search / find_similar_code / find_usages for deeper lookups.
 
-The following code snippets were found relevant to the user's request. Use them as starting context, and use the semantic_search / find_similar_code / find_usages tools for additional lookups as needed.
-
-${preRunContext}`;
+${preRunContext}`);
 	}
 
-	prompt += `
+	// Runtime environment
+	parts.push(`# Environment
 
-# Available Tools
+- **Date:** ${dateTime}
+- **Working directory:** ${cwd}
+- **Mode:** ${mode}${workingBranch ? `\n- **Branch:** ${workingBranch}` : ""}`);
 
-${toolsList}
+	// Continuation context
+	if (isContinuation) {
+		parts.push(`# Continuation
 
-# Guidelines
+This is a **follow-up session**. Your conversation history has been restored from the previous run. The user has sent a new message — read it and continue where you left off.${workingBranch ? `\n\nYou are on branch \`${workingBranch}\` which contains your previous changes. Run \`git log --oneline -5\` to see what was done.` : ""}`);
+	}
 
-${guidelinesText}
-
-Current date and time: ${dateTime}
-Current working directory: ${cwd}`;
-
-	// Multi-repo context
+	// Multi-repo layout
 	if (repos && repos.length > 1) {
 		const repoLines = repos.map((r) => {
-			const tag = r.primary ? "PRIMARY" : "       ";
-			return `- ${tag}: ${r.name} at ${r.path}${r.primary ? " (this is your working directory)" : ""}`;
+			return r.primary
+				? `- **${r.name}** → \`${r.path}\` (primary, this is your cwd)`
+				: `- ${r.name} → \`${r.path}\``;
 		});
-		prompt += `
+		parts.push(`# Repository Layout
 
-# Repository Layout
-
-You have access to the following repositories:
 ${repoLines.join("\n")}
 
-When making changes that span multiple repositories, work on one repo at a time. Use \`cd\` or absolute paths to switch between repos.`;
+Work on one repo at a time. Use absolute paths or \`cd\` to switch.`);
 	}
 
-	// Append resolved prompt (instruction resolution chain from API)
-	if (resolvedPrompt) {
-		prompt += `\n\n# Project Instructions\n\n${resolvedPrompt}`;
+	// Tools
+	parts.push(`# Available Tools
+
+${toolsList}`);
+
+	// Operational rules
+	if (operationalRules.length > 0) {
+		parts.push(`# Rules
+
+${operationalRules.map((r) => `- ${r}`).join("\n")}`);
 	}
 
-	return prompt;
+	return parts.join("\n\n---\n\n");
 }
 
-function getModePreamble(mode: AgentMode): string {
+function getOperationalRules(mode: AgentMode, tools: string[]): string[] {
+	const rules: string[] = [];
+
+	// Tool usage rules
+	const hasBash = tools.includes("bash");
+	const hasRead = tools.includes("read");
+	const hasEdit = tools.includes("edit");
+	const hasWrite = tools.includes("write");
+
+	if (hasRead) {
+		rules.push("Always read a file before editing it. Never guess at file contents.");
+	}
+	if (hasBash) {
+		rules.push("Prefer dedicated tools (read/edit/grep/find/ls) over bash equivalents. Use bash for build commands, test runners, and system operations.");
+	}
+	if (hasEdit) {
+		rules.push("Use edit for targeted changes — old_string must match the file exactly (whitespace-sensitive).");
+	}
+	if (hasWrite) {
+		rules.push("Use write only for new files or complete rewrites. Prefer edit for modifications.");
+	}
+
+	// Mode-specific operational guidance
 	switch (mode) {
 		case "plan":
-			return `You are a planning agent. Your job is to explore the codebase, understand the architecture, and break down the user's request into concrete implementation tasks.
-
-Approach:
-1. First, explore the project structure (package.json, directory layout, key config files)
-2. Identify the relevant files and components for the user's request
-3. Analyze dependencies and potential risks
-4. Break the work down into specific, actionable subtasks — each should be independently implementable
-5. Use the create_tasks tool to create tickets for each subtask on the project board
-6. Summarize the plan and list the created tasks
-
-Do NOT make any code changes — only read and analyze. Your final output should always include tasks created via the create_tasks tool. Each task title should be imperative and specific (e.g. "Add email validation to signup endpoint"). Include enough detail in the description for another developer (or agent) to implement it without ambiguity.
-
-When creating tasks, include the codeContext field with file paths, symbol names, line ranges, and reasons from your semantic_search results. This helps implementing agents jump straight to the relevant code.
-
-After creating tasks, update their status as you work through them using update_task_status. Mark each task as "in_progress" when you begin discussing it and "completed" when you've fully analyzed it.`;
-
+			rules.push(
+				"Do NOT modify any files. Read-only exploration.",
+				"Create tasks via create_tasks — each title should be imperative and specific.",
+				"Include codeContext (file paths, symbols, line ranges) in each task so implementing agents can jump straight to relevant code.",
+				"Update task status as you analyze: in_progress when discussing, completed when fully analyzed.",
+			);
+			break;
 		case "implement":
-			return `You are a coding agent. Implement the requested changes step by step.
-
-Approach:
-1. Understand the request — read relevant files first
-2. Plan your changes before editing
-3. Make changes incrementally — edit one file at a time, verify after each change
-4. Run tests if available (look for test scripts in package.json)
-5. Commit and push your work when done
-
-When working on a large task, break it into numbered steps and report progress as you complete each one.
-
-If tasks were created (by a planning run), mark each as "in_progress" when you start working on it and "completed" when you finish, using the update_task_status tool.`;
-
+			rules.push(
+				"Make changes incrementally — one logical change at a time, verify after each.",
+				"Run tests if available (check package.json scripts).",
+				"Update task status: in_progress when starting, completed when done.",
+				"Commit and push when finished.",
+			);
+			break;
 		case "bugfix":
-			return `You are a debugging agent. Find and fix the reported issue.
-
-Approach:
-1. Reproduce — understand the symptoms and find relevant code
-2. Diagnose — read the code, check logs, identify root cause
-3. Fix — make the minimal change needed
-4. Verify — run tests or check the fix manually
-5. Commit and push when the fix is verified`;
-
+			rules.push(
+				"Reproduce → Diagnose → Fix → Verify. Minimal changes only.",
+				"Explain the root cause before fixing.",
+				"Run tests to verify the fix doesn't regress.",
+				"Commit and push when the fix is verified.",
+			);
+			break;
 		case "review":
-			return `You are a code review agent. Examine the code for bugs, security issues, performance problems, and style concerns. Provide constructive feedback with specific file/line references.`;
-
-		default:
-			return `You are a coding agent. Help the user with their request.`;
+			rules.push(
+				"Do NOT modify any files. Read-only review.",
+				"Reference specific files and line numbers.",
+				"Categorize findings: critical / warning / suggestion.",
+				"Check for: bugs, security issues, performance problems, missing error handling.",
+			);
+			break;
 	}
+
+	rules.push("Be concise. Show file paths when working with files.");
+
+	return rules;
 }

@@ -65,10 +65,11 @@ export async function resumeAgentRun(
   payload.isContinuation = true;
 
   // Attach repo from run history, or fall back to project repos.
-  // Use defaultBranch (NOT the working branch) since working branch may only
-  // exist in the previous sandbox and was never pushed to remote (e.g., plan mode).
+  // For implement/bugfix, use the working branch (changes were pushed to remote).
+  // For plan/review, use defaultBranch (working branch may not exist on remote).
   if (runRepos.length > 0) {
     const r = runRepos[0]!;
+    const useWorkingBranch = (run.mode === "implement" || run.mode === "bugfix") && r.branch;
     payload.repo = {
       repositoryId: r.repositoryId,
       connectorId: r.connectorId,
@@ -76,6 +77,7 @@ export async function resumeAgentRun(
       name: r.name,
       cloneUrl: r.cloneUrl,
       defaultBranch: r.defaultBranch,
+      ref: useWorkingBranch ? r.branch : undefined,
     };
 
     // Enrich auth token

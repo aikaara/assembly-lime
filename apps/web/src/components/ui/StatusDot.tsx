@@ -7,7 +7,7 @@ const STATUS_STYLES: Record<AgentRunStatus, string> = {
   failed: "bg-red-500",
   cancelled: "bg-amber-500",
   awaiting_approval: "bg-amber-400 animate-pulse",
-  awaiting_followup: "bg-lime-400 animate-pulse",
+  awaiting_followup: "bg-blue-400",
   awaiting_env_vars: "bg-amber-400 animate-pulse",
   plan_approved: "bg-lime-500",
 };
@@ -19,7 +19,7 @@ const STATUS_LABELS: Record<AgentRunStatus, string> = {
   failed: "Failed",
   cancelled: "Cancelled",
   awaiting_approval: "Awaiting Approval",
-  awaiting_followup: "Awaiting Follow-up",
+  awaiting_followup: "Idle",
   awaiting_env_vars: "Awaiting Env Vars",
   plan_approved: "Plan Approved",
 };

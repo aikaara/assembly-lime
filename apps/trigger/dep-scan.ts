@@ -4,7 +4,7 @@ import { scanAllDependencies } from "../api/src/services/dependency-scanner.serv
 
 export const depScanTask = task({
   id: "dep-scan",
-  maxDuration: 600,
+  maxDuration: 120,
   retry: { maxAttempts: 2 },
   run: async (payload: { tenantId: number }) => {
     logger.info("dependency scan started", { tenantId: payload.tenantId });

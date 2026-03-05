@@ -162,11 +162,37 @@ export function agentRunRoutes(db: Db) {
         const workerExitedStatuses = ["completed", "awaiting_approval", "awaiting_followup", "failed"];
         if (workerExitedStatuses.includes(run.status)) {
           log.info({ runId, previousStatus: run.status }, "worker exited — dispatching continuation");
+
+          // Emit immediate status so the UI shows feedback while worker spins up
+          const resumingEvent = {
+            type: "status" as const,
+            status: "queued" as const,
+            message: "Resuming agent for follow-up...",
+          };
+          await db.insert(agentEvents).values({
+            tenantId: auth!.tenantId,
+            agentRunId: runId,
+            type: "status",
+            payloadJson: resumingEvent,
+          });
+          broadcastToWs(runId, resumingEvent);
+
           try {
             await resumeAgentRun(db, run as Parameters<typeof resumeAgentRun>[1]);
           } catch (err) {
             log.error({ err, runId }, "failed to dispatch agent continuation");
-            // Don't fail the request — message is stored, user can retry
+            // Emit error feedback so user knows something went wrong
+            const errEvent = {
+              type: "error" as const,
+              message: "Failed to resume agent. Try sending your message again.",
+            };
+            await db.insert(agentEvents).values({
+              tenantId: auth!.tenantId,
+              agentRunId: runId,
+              type: "error",
+              payloadJson: errEvent,
+            });
+            broadcastToWs(runId, errEvent);
           }
         }
 
